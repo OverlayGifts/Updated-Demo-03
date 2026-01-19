@@ -12,6 +12,7 @@
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
 
@@ -87,7 +88,7 @@
             <p style="color:#ccc; font-size:13px;">Share this link to shop together in real-time.</p>
             <div id="invite-link-box" style="background:#333; padding:10px; color:#fff; font-size:12px; word-break:break-all; margin:10px 0; border:1px dashed #666;">Generating Link...</div>
             <button class="pill accent" onclick="copyInviteLink()">Copy Link</button>
-            <button class="btn-text" onclick="closeCoShopModal()" style="margin-top:10px; background:none; border:none; color:#888; text-decoration:underline;">Close</button>
+            <button class="btn-text" onclick="closeCoShopModal()" style="margin-top:10px; background:none; border:none; color:#888; text-decoration:underline; cursor:pointer;">Close</button>
         </div>
     </div>
 
@@ -137,6 +138,7 @@
             <p id="process-text" style="color:white; margin-top:10px;">Processing...</p>
         </div>
     </div>
+    
     <div id="toast-notification">Action Disabled</div>
   </div>
 
