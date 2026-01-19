@@ -1,4 +1,4 @@
-/* script.js - Jewels-Ai Atelier: v4.2 (Fixed Nila Voice & Full Features) */
+/* script.js - Jewels-Ai Atelier: v4.3 (No Voice) */
 
 /* --- CONFIGURATION --- */
 const API_KEY = "AIzaSyAXG3iG2oQjUA_BpnO8dK8y-MHJ7HLrhyE"; 
@@ -24,7 +24,6 @@ const canvasElement = document.getElementById('overlay');
 const canvasCtx = canvasElement.getContext('2d');
 const loadingStatus = document.getElementById('loading-status');
 const flashOverlay = document.getElementById('flash-overlay'); 
-const voiceBtn = document.getElementById('voice-btn'); 
 
 /* App State */
 let earringImg = null, necklaceImg = null, ringImg = null, bangleImg = null;
@@ -49,10 +48,7 @@ let physics = {
 /* Camera State */
 let currentCameraMode = 'user'; 
 
-/* Voice & AI State */
-let recognition = null;
-let voiceEnabled = true;
-let isRecognizing = false;
+/* Auto Try State */
 let autoTryRunning = false;
 let autoSnapshots = [];
 let autoTryIndex = 0;
@@ -66,84 +62,6 @@ let handSmoother = {
     ring: { x: 0, y: 0, angle: 0, size: 0 },
     bangle: { x: 0, y: 0, angle: 0, size: 0 }
 };
-
-/* --- AI CONCIERGE "NILA" ENGINE (FIXED) --- */
-const concierge = {
-    synth: window.speechSynthesis,
-    voice: null,
-    active: true,
-    hasStarted: false, // Prevents auto-play errors
-    
-    init: function() {
-        if (speechSynthesis.onvoiceschanged !== undefined) {
-            speechSynthesis.onvoiceschanged = this.setVoice;
-        }
-        this.setVoice();
-        
-        // Show visual cue only, don't speak yet
-        setTimeout(() => {
-            const bubble = document.getElementById('ai-bubble');
-            if(bubble) {
-                bubble.innerText = "Tap me to start Voice AI";
-                bubble.classList.add('bubble-visible');
-            }
-        }, 1000);
-    },
-
-    setVoice: function() {
-        const voices = window.speechSynthesis.getVoices();
-        concierge.voice = voices.find(v => v.name.includes("Google US English") || v.name.includes("Female")) || voices[0];
-    },
-
-    speak: function(text) {
-        if (!this.active || !this.synth) return;
-        
-        // Visuals (Always work)
-        const bubble = document.getElementById('ai-bubble');
-        const avatar = document.getElementById('ai-avatar');
-        if(bubble) { bubble.innerText = text; bubble.classList.add('bubble-visible'); }
-        if(avatar) avatar.classList.add('talking');
-
-        // Audio (Only works after user interaction)
-        if (this.hasStarted) {
-            this.synth.cancel();
-            const utter = new SpeechSynthesisUtterance(text);
-            utter.voice = this.voice;
-            utter.rate = 1.0; 
-            utter.pitch = 1.1;
-            utter.onend = () => {
-                if(bubble) setTimeout(() => bubble.classList.remove('bubble-visible'), 2000);
-                if(avatar) avatar.classList.remove('talking');
-            };
-            this.synth.speak(utter);
-        } else {
-            // If sound blocked, stop animation after 3s
-            setTimeout(() => {
-                 if(avatar) avatar.classList.remove('talking');
-                 if(bubble) bubble.classList.remove('bubble-visible');
-            }, 3000);
-        }
-    },
-
-    toggle: function() {
-        // First click unlocks audio
-        if (!this.hasStarted) {
-            this.hasStarted = true;
-            this.speak("Namaste! I am Nila. I am now active. Select a jewelry category.");
-            return;
-        }
-
-        this.active = !this.active;
-        if(this.active) this.speak("I am listening.");
-        else { 
-            this.synth.cancel(); 
-            const bubble = document.getElementById('ai-bubble');
-            if(bubble) bubble.innerText = "Muted"; 
-        }
-    }
-};
-
-window.toggleConciergeMute = () => concierge.toggle();
 
 /* --- HELPER: LERP --- */
 function lerp(start, end, amt) { return (1 - amt) * start + amt * end; }
@@ -164,7 +82,6 @@ function checkDailyDrop() {
         document.getElementById('daily-drop-modal').style.display = 'flex';
         
         localStorage.setItem('jewels_daily_date', today);
-        concierge.speak("I found a special daily drop for you!");
     }
 }
 
@@ -175,7 +92,6 @@ function tryDailyItem() {
     if (dailyItem) {
         selectJewelryType(dailyItem.type).then(() => {
             applyAssetInstantly(dailyItem.item, dailyItem.index);
-            concierge.speak("Excellent choice. This is trending right now.");
         });
     }
 }
@@ -261,7 +177,6 @@ function setActiveARImage(img) {
 /* --- 5. INITIALIZATION --- */
 window.onload = async () => {
     initBackgroundFetch();
-    concierge.init(); // WAKE UP NILA
     await startCameraFast('user');
     setTimeout(() => { loadingStatus.style.display = 'none'; }, 2000);
     await selectJewelryType('earrings');
@@ -271,12 +186,6 @@ window.onload = async () => {
 async function selectJewelryType(type) {
   if (currentType === type) return;
   currentType = type;
-  
-  if(concierge.hasStarted) {
-      if(type === 'earrings') concierge.speak("Earrings mode. Turn your head to see them swing.");
-      else if(type === 'chains') concierge.speak("Necklace mode. This looks elegant.");
-      else if(type === 'rings') concierge.speak("Ring mode. Show me your hand.");
-  }
   
   const targetMode = (type === 'rings' || type === 'bangles') ? 'environment' : 'user';
   startCameraFast(targetMode); 
@@ -332,7 +241,7 @@ async function startCameraFast(mode = 'user') {
     try {
         const stream = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: mode } });
         videoElement.srcObject = stream;
-        videoElement.onloadeddata = () => { videoElement.play(); detectLoop(); if(!recognition) initVoiceControl(); };
+        videoElement.onloadeddata = () => { videoElement.play(); detectLoop(); };
     } catch (err) { alert("Camera Error: " + err.message); }
 }
 
@@ -499,21 +408,8 @@ window.closePreview = closePreview;
 window.downloadSingleSnapshot = downloadSingleSnapshot; 
 window.shareSingleSnapshot = shareSingleSnapshot;
 window.changeLightboxImage = changeLightboxImage; 
-window.toggleVoiceControl = toggleVoiceControl;
-window.initVoiceControl = initVoiceControl;
 
 // Helper Functions
-function initVoiceControl() {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) { if(voiceBtn) voiceBtn.style.display = 'none'; return; }
-    recognition = new SpeechRecognition(); recognition.continuous = true; recognition.interimResults = false; recognition.lang = 'en-US';
-    recognition.onstart = () => { isRecognizing = true; if(voiceBtn) { voiceBtn.style.backgroundColor = "rgba(0, 255, 0, 0.2)"; voiceBtn.style.borderColor = "#00ff00"; } };
-    recognition.onresult = (event) => { if (event.results[event.results.length - 1].isFinal) processVoiceCommand(event.results[event.results.length - 1][0].transcript.trim().toLowerCase()); };
-    recognition.onend = () => { isRecognizing = false; if (voiceEnabled) setTimeout(() => { try { recognition.start(); } catch(e) {} }, 500); else if(voiceBtn) { voiceBtn.style.backgroundColor = "rgba(0,0,0,0.5)"; voiceBtn.style.borderColor = "white"; } };
-    try { recognition.start(); } catch(e) {}
-}
-function toggleVoiceControl() { if (!recognition) { initVoiceControl(); return; } voiceEnabled = !voiceEnabled; if (!voiceEnabled) { recognition.stop(); if(voiceBtn) { voiceBtn.innerHTML = '🔇'; voiceBtn.classList.add('voice-off'); } } else { try { recognition.start(); } catch(e) {} if(voiceBtn) { voiceBtn.innerHTML = '🎙️'; voiceBtn.classList.remove('voice-off'); } } }
-function processVoiceCommand(cmd) { cmd = cmd.replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g,""); if (cmd.includes('next') || cmd.includes('change')) { navigateJewelry(1); triggerVisualFeedback("Next"); } else if (cmd.includes('back') || cmd.includes('previous')) { navigateJewelry(-1); triggerVisualFeedback("Previous"); } else if (cmd.includes('photo') || cmd.includes('capture')) takeSnapshot(); else if (cmd.includes('earring')) selectJewelryType('earrings'); else if (cmd.includes('chain') || cmd.includes('neck')) selectJewelryType('chains'); else if (cmd.includes('ring')) selectJewelryType('rings'); else if (cmd.includes('bangle')) selectJewelryType('bangles'); }
 function triggerVisualFeedback(text) { const feedback = document.createElement('div'); feedback.innerText = text; feedback.style.cssText = 'position:fixed; top:20%; left:50%; transform:translate(-50%,-50%); background:rgba(0,0,0,0.7); color:#fff; padding:10px 20px; border-radius:20px; z-index:1000; pointer-events:none;'; document.body.appendChild(feedback); setTimeout(() => { feedback.remove(); }, 1000); }
 function triggerFlash() { if(!flashOverlay) return; flashOverlay.classList.remove('flash-active'); void flashOverlay.offsetWidth; flashOverlay.classList.add('flash-active'); setTimeout(() => { flashOverlay.classList.remove('flash-active'); }, 300); }
 function toggleTryAll() { if (!currentType) { alert("Select category!"); return; } if (autoTryRunning) stopAutoTry(); else startAutoTry(); }
@@ -521,7 +417,7 @@ function startAutoTry() { autoTryRunning = true; autoSnapshots = []; autoTryInde
 function stopAutoTry() { autoTryRunning = false; clearTimeout(autoTryTimeout); document.getElementById('tryall-btn').textContent = "Try All"; if (autoSnapshots.length > 0) showGallery(); }
 async function runAutoStep() { if (!autoTryRunning) return; const assets = JEWELRY_ASSETS[currentType]; if (!assets || autoTryIndex >= assets.length) { stopAutoTry(); return; } const asset = assets[autoTryIndex]; const highResImg = await loadAsset(asset.fullSrc, asset.id); setActiveARImage(highResImg); currentAssetName = asset.name; autoTryTimeout = setTimeout(() => { triggerFlash(); captureToGallery(); autoTryIndex++; runAutoStep(); }, 1500); }
 function captureToGallery() { const tempCanvas = document.createElement('canvas'); tempCanvas.width = videoElement.videoWidth; tempCanvas.height = videoElement.videoHeight; const tempCtx = tempCanvas.getContext('2d'); if (currentCameraMode === 'environment') { tempCtx.translate(0, 0); tempCtx.scale(1, 1); } else { tempCtx.translate(tempCanvas.width, 0); tempCtx.scale(-1, 1); } tempCtx.drawImage(videoElement, 0, 0); tempCtx.setTransform(1, 0, 0, 1, 0, 0); try { tempCtx.drawImage(canvasElement, 0, 0); } catch(e) {} let cleanName = currentAssetName.replace(/\.(png|jpg|jpeg|webp)$/i, "").replace(/_/g, " "); cleanName = cleanName.charAt(0).toUpperCase() + cleanName.slice(1); const padding = tempCanvas.width * 0.04; const titleSize = tempCanvas.width * 0.045; const descSize = tempCanvas.width * 0.035; const contentHeight = (titleSize * 2) + descSize + padding; const gradient = tempCtx.createLinearGradient(0, tempCanvas.height - contentHeight - padding, 0, tempCanvas.height); gradient.addColorStop(0, "rgba(0,0,0,0)"); gradient.addColorStop(0.2, "rgba(0,0,0,0.8)"); gradient.addColorStop(1, "rgba(0,0,0,0.95)"); tempCtx.fillStyle = gradient; tempCtx.fillRect(0, tempCanvas.height - contentHeight - padding, tempCanvas.width, contentHeight + padding); tempCtx.font = `bold ${titleSize}px Playfair Display, serif`; tempCtx.fillStyle = "#d4af37"; tempCtx.textAlign = "left"; tempCtx.textBaseline = "top"; tempCtx.fillText("Product Description", padding, tempCanvas.height - contentHeight); tempCtx.font = `${descSize}px Montserrat, sans-serif`; tempCtx.fillStyle = "#ffffff"; tempCtx.fillText(cleanName, padding, tempCanvas.height - contentHeight + (titleSize * 1.5)); if (watermarkImg.complete) { const wWidth = tempCanvas.width * 0.25; const wHeight = (watermarkImg.height / watermarkImg.width) * wWidth; tempCtx.drawImage(watermarkImg, tempCanvas.width - wWidth - padding, padding, wWidth, wHeight); } const dataUrl = tempCanvas.toDataURL('image/png'); const safeName = "Jewels_Look"; autoSnapshots.push({ url: dataUrl, name: `${safeName}_${Date.now()}.png` }); return { url: dataUrl, name: `${safeName}_${Date.now()}.png` }; }
-function takeSnapshot() { triggerFlash(); const shotData = captureToGallery(); currentPreviewData = shotData; document.getElementById('preview-image').src = shotData.url; document.getElementById('preview-modal').style.display = 'flex'; if(concierge.hasStarted) concierge.speak("Captured perfectly!"); }
+function takeSnapshot() { triggerFlash(); const shotData = captureToGallery(); currentPreviewData = shotData; document.getElementById('preview-image').src = shotData.url; document.getElementById('preview-modal').style.display = 'flex'; }
 function downloadSingleSnapshot() { if(!currentPreviewData.url) return; saveAs(currentPreviewData.url, currentPreviewData.name); }
 function downloadAllAsZip() { if (autoSnapshots.length === 0) return; const zip = new JSZip(); const folder = zip.folder("Jewels-Ai_Collection"); autoSnapshots.forEach(item => folder.file(item.name, item.url.replace(/^data:image\/(png|jpg);base64,/, ""), {base64:true})); zip.generateAsync({type:"blob"}).then(content => saveAs(content, "Jewels-Ai_Collection.zip")); }
 function shareSingleSnapshot() { if(!currentPreviewData.url) return; fetch(currentPreviewData.url).then(res => res.blob()).then(blob => { const file = new File([blob], "look.png", { type: "image/png" }); if (navigator.share) navigator.share({ files: [file] }); }); }
