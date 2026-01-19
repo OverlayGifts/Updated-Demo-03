@@ -1,4 +1,4 @@
-/* script.js - Jewels-Ai Atelier: v5.1 (Group Party Mode) */
+/* script.js - Jewels-Ai Atelier: v5.0 (Co-Shopping Enabled) */
 
 /* --- CONFIGURATION --- */
 const API_KEY = "AIzaSyAXG3iG2oQjUA_BpnO8dK8y-MHJ7HLrhyE"; 
@@ -60,105 +60,86 @@ let handSmoother = {
     bangle: { x: 0, y: 0, angle: 0, size: 0 }
 };
 
-/* --- CO-SHOPPING ENGINE (GROUP PARTY VERSION) --- */
+/* --- CO-SHOPPING (MULTIPLAYER) ENGINE --- */
 const coShop = {
     peer: null,
-    conns: [], // Stores connections to ALL friends
+    conn: null,
     myId: null,
     active: false,
-    
+    isHost: false,
+
     init: function() {
-        // Initialize PeerJS
+        // Create Peer with random ID
         this.peer = new Peer(null, { debug: 2 });
         
-        // When I get my ID
         this.peer.on('open', (id) => {
             this.myId = id;
             console.log("My Peer ID: " + id);
             this.checkForInvite();
         });
 
-        // When a friend joins ME
         this.peer.on('connection', (c) => {
             this.handleConnection(c);
-            showToast("New Friend Joined!");
+            showToast("Friend Joined!");
             this.activateUI();
         });
 
-        this.peer.on('error', (err) => console.error("PeerJS Error:", err));
+        this.peer.on('error', (err) => console.error(err));
     },
 
     checkForInvite: function() {
+        // Check URL for ?room=ID
         const urlParams = new URLSearchParams(window.location.search);
         const roomId = urlParams.get('room');
         if (roomId) {
-            console.log("Joining Party: " + roomId);
+            console.log("Joining Room: " + roomId);
             this.connectToHost(roomId);
+        } else {
+            this.isHost = true;
         }
     },
 
-    // Guests connect to the Host
     connectToHost: function(hostId) {
-        let conn = this.peer.connect(hostId);
-        this.handleConnection(conn);
-    },
-
-    handleConnection: function(c) {
-        c.on('open', () => {
-            // Add this new friend to our list
-            this.conns.push(c); 
-            console.log("Connected to: " + c.peer);
-            
+        this.conn = this.peer.connect(hostId);
+        this.conn.on('open', () => {
+            showToast("Connected to Host!");
             this.activateUI();
-            
-            // Listen for data from this specific friend
-            c.on('data', (data) => this.handleData(data, c));
-            
-            // If they leave, remove them from the list
-            c.on('close', () => {
-                this.conns = this.conns.filter(p => p !== c);
-                showToast("Friend Left");
-            });
+            this.setupDataListener();
         });
     },
 
-    handleData: function(data, senderConn) {
-        console.log("Received:", data);
-        
-        if (data.type === 'SYNC_ITEM') {
-            // 1. Update MY screen locally (without broadcasting back)
-            selectJewelryType(data.cat).then(() => {
-                applyAssetInstantly(JEWELRY_ASSETS[data.cat][data.idx], data.idx, false);
-            });
-            
-            // 2. (Relay) If I am the Host, send this update to everyone else!
-            this.broadcast(data, senderConn);
-            
-        } else if (data.type === 'VOTE') {
-            showReaction(data.val);
-            // Relay votes to everyone else too
-            this.broadcast(data, senderConn);
-        }
+    handleConnection: function(c) {
+        this.conn = c;
+        this.setupDataListener();
     },
 
-    // Send data to EVERYONE connected (except the sender)
-    broadcast: function(data, excludeConn = null) {
-        this.conns.forEach(c => {
-            if (c.open && c !== excludeConn) {
-                c.send(data);
+    setupDataListener: function() {
+        this.conn.on('data', (data) => {
+            console.log("Received:", data);
+            if (data.type === 'SYNC_ITEM') {
+                // Apply the item locally WITHOUT sending it back (prevent loop)
+                selectJewelryType(data.cat).then(() => {
+                    applyAssetInstantly(JEWELRY_ASSETS[data.cat][data.idx], data.idx, false);
+                });
+            } else if (data.type === 'VOTE') {
+                showReaction(data.val);
             }
         });
     },
 
-    // When YOU change jewelry, tell everyone
     sendUpdate: function(category, index) {
-        this.broadcast({ type: 'SYNC_ITEM', cat: category, idx: index });
+        if (this.conn && this.conn.open) {
+            this.conn.send({ type: 'SYNC_ITEM', cat: category, idx: index });
+        }
     },
 
-    // When YOU vote, tell everyone
     sendVote: function(val) {
-        this.broadcast({ type: 'VOTE', val: val });
-        showReaction(val); // Show on my screen too
+        if (this.conn && this.conn.open) {
+            this.conn.send({ type: 'VOTE', val: val });
+            showReaction(val); // Show locally too
+        } else {
+            showToast("No one connected!");
+        }
     },
     
     activateUI: function() {
@@ -274,7 +255,7 @@ function setActiveARImage(img) {
 /* --- 5. INITIALIZATION --- */
 window.onload = async () => {
     initBackgroundFetch();
-    coShop.init(); // Initialize Multiplayer Group
+    coShop.init(); // Initialize Multiplayer
     await startCameraFast('user');
     setTimeout(() => { loadingStatus.style.display = 'none'; }, 2000);
     await selectJewelryType('earrings');
@@ -312,7 +293,7 @@ async function applyAssetInstantly(asset, index, shouldBroadcast = true) {
     currentAssetIndex = index; currentAssetName = asset.name; highlightButtonByIndex(index);
     const thumbImg = new Image(); thumbImg.src = asset.thumbSrc; thumbImg.crossOrigin = 'anonymous'; setActiveARImage(thumbImg);
     
-    // Broadcast to ALL friends
+    // Broadcast to friend
     if (shouldBroadcast && coShop.active) {
         coShop.sendUpdate(currentType, index);
     }
@@ -343,3 +324,155 @@ async function startCameraFast(mode = 'user') {
 }
 
 async function detectLoop() {
+    if (videoElement.readyState >= 2) {
+        if (!isProcessingFace) { isProcessingFace = true; await faceMesh.send({image: videoElement}); isProcessingFace = false; }
+        if (!isProcessingHand) { isProcessingHand = true; await hands.send({image: videoElement}); isProcessingHand = false; }
+    }
+    requestAnimationFrame(detectLoop);
+}
+
+/* --- 8. MEDIAPIPE FACE (Same as before) --- */
+const faceMesh = new FaceMesh({ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}` });
+faceMesh.setOptions({ refineLandmarks: true, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
+faceMesh.onResults((results) => {
+  if (currentType !== 'earrings' && currentType !== 'chains') return;
+  const w = videoElement.videoWidth; const h = videoElement.videoHeight;
+  canvasElement.width = w; canvasElement.height = h;
+  canvasCtx.save(); canvasCtx.clearRect(0, 0, w, h);
+  if (currentCameraMode === 'environment') { canvasCtx.translate(0, 0); canvasCtx.scale(1, 1); } 
+  else { canvasCtx.translate(w, 0); canvasCtx.scale(-1, 1); }
+  if (results.multiFaceLandmarks && results.multiFaceLandmarks[0]) {
+    const lm = results.multiFaceLandmarks[0]; 
+    const leftEar = { x: lm[132].x * w, y: lm[132].y * h }; const rightEar = { x: lm[361].x * w, y: lm[361].y * h };
+    const neck = { x: lm[152].x * w, y: lm[152].y * h }; const nose = { x: lm[1].x * w, y: lm[1].y * h };
+    const headTilt = Math.atan2(rightEar.y - leftEar.y, rightEar.x - leftEar.x);
+    updatePhysics(headTilt, lm[1].x, w);
+    const earDist = Math.hypot(rightEar.x - leftEar.x, rightEar.y - leftEar.y);
+    const distToLeft = Math.hypot(nose.x - leftEar.x, nose.y - leftEar.y);
+    const distToRight = Math.hypot(nose.x - rightEar.x, nose.y - rightEar.y);
+    const ratio = distToLeft / (distToLeft + distToRight);
+    const showLeft = ratio > 0.25; const showRight = ratio < 0.75; 
+    if (earringImg && earringImg.complete) {
+      let ew = earDist * 0.25; let eh = (earringImg.height/earringImg.width) * ew;
+      const xShift = ew * 0.05; 
+      const totalAngle = physics.earringAngle + (physics.swayOffset * 0.5);
+      canvasCtx.shadowColor = "rgba(0,0,0,0.5)"; canvasCtx.shadowBlur = 15; canvasCtx.shadowOffsetX = 2; canvasCtx.shadowOffsetY = 5;
+      if (showLeft) { canvasCtx.save(); canvasCtx.translate(leftEar.x, leftEar.y); canvasCtx.rotate(totalAngle); canvasCtx.drawImage(earringImg, (-ew/2) - xShift, -eh * 0.20, ew, eh); canvasCtx.restore(); }
+      if (showRight) { canvasCtx.save(); canvasCtx.translate(rightEar.x, rightEar.y); canvasCtx.rotate(totalAngle); canvasCtx.drawImage(earringImg, (-ew/2) + xShift, -eh * 0.20, ew, eh); canvasCtx.restore(); }
+      canvasCtx.shadowColor = "transparent";
+    }
+    if (necklaceImg && necklaceImg.complete) {
+      const nw = earDist * 0.85; const nh = (necklaceImg.height/necklaceImg.width) * nw;
+      canvasCtx.drawImage(necklaceImg, neck.x - nw/2, neck.y + (nw*0.1), nw, nh);
+    }
+  }
+  canvasCtx.restore();
+});
+
+/* --- 9. MEDIAPIPE HANDS (Same as before) --- */
+const hands = new Hands({ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}` });
+hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
+function calculateAngle(p1, p2) { return Math.atan2(p2.y - p1.y, p2.x - p1.x); }
+hands.onResults((results) => {
+  const w = videoElement.videoWidth; const h = videoElement.videoHeight;
+  if (currentType !== 'rings' && currentType !== 'bangles') return;
+  canvasElement.width = w; canvasElement.height = h;
+  canvasCtx.save(); canvasCtx.clearRect(0, 0, w, h);
+  if (currentCameraMode === 'environment') { canvasCtx.translate(0, 0); canvasCtx.scale(1, 1); } 
+  else { canvasCtx.translate(w, 0); canvasCtx.scale(-1, 1); }
+  if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+      const lm = results.multiHandLandmarks[0];
+      const mcp = { x: lm[13].x * w, y: lm[13].y * h }; const pip = { x: lm[14].x * w, y: lm[14].y * h };
+      const targetRingAngle = calculateAngle(mcp, pip) - (Math.PI / 2);
+      const targetRingWidth = Math.hypot(pip.x - mcp.x, pip.y - mcp.y) * 0.6; 
+      const wrist = { x: lm[0].x * w, y: lm[0].y * h }; 
+      const targetArmAngle = calculateAngle(wrist, { x: lm[9].x * w, y: lm[9].y * h }) - (Math.PI / 2);
+      const targetBangleWidth = Math.hypot((lm[17].x*w)-(lm[5].x*w), (lm[17].y*h)-(lm[5].y*h)) * 1.25; 
+      if (!handSmoother.active) {
+          handSmoother.ring = { x: mcp.x, y: mcp.y, angle: targetRingAngle, size: targetRingWidth };
+          handSmoother.bangle = { x: wrist.x, y: wrist.y, angle: targetArmAngle, size: targetBangleWidth };
+          handSmoother.active = true;
+      } else {
+          handSmoother.ring.x = lerp(handSmoother.ring.x, mcp.x, SMOOTH_FACTOR);
+          handSmoother.ring.y = lerp(handSmoother.ring.y, mcp.y, SMOOTH_FACTOR);
+          handSmoother.ring.angle = lerp(handSmoother.ring.angle, targetRingAngle, SMOOTH_FACTOR);
+          handSmoother.ring.size = lerp(handSmoother.ring.size, targetRingWidth, SMOOTH_FACTOR);
+          handSmoother.bangle.x = lerp(handSmoother.bangle.x, wrist.x, SMOOTH_FACTOR);
+          handSmoother.bangle.y = lerp(handSmoother.bangle.y, wrist.y, SMOOTH_FACTOR);
+          handSmoother.bangle.angle = lerp(handSmoother.bangle.angle, targetArmAngle, SMOOTH_FACTOR);
+          handSmoother.bangle.size = lerp(handSmoother.bangle.size, targetBangleWidth, SMOOTH_FACTOR);
+      }
+      canvasCtx.shadowColor = "rgba(0,0,0,0.4)"; canvasCtx.shadowBlur = 10; canvasCtx.shadowOffsetY = 5;
+      if (ringImg && ringImg.complete) {
+          const rHeight = (ringImg.height / ringImg.width) * handSmoother.ring.size;
+          canvasCtx.save(); canvasCtx.translate(handSmoother.ring.x, handSmoother.ring.y); canvasCtx.rotate(handSmoother.ring.angle); 
+          canvasCtx.drawImage(ringImg, -handSmoother.ring.size/2, (handSmoother.ring.size/0.6)*0.15, handSmoother.ring.size, rHeight); canvasCtx.restore();
+      }
+      if (bangleImg && bangleImg.complete) {
+          const bHeight = (bangleImg.height / bangleImg.width) * handSmoother.bangle.size;
+          canvasCtx.save(); canvasCtx.translate(handSmoother.bangle.x, handSmoother.bangle.y); canvasCtx.rotate(handSmoother.bangle.angle);
+          canvasCtx.drawImage(bangleImg, -handSmoother.bangle.size/2, -bHeight/2, handSmoother.bangle.size, bHeight); canvasCtx.restore();
+      }
+      canvasCtx.shadowColor = "transparent";
+  }
+  canvasCtx.restore();
+});
+
+/* --- EXPORTS & UI HANDLERS --- */
+window.selectJewelryType = selectJewelryType; 
+window.toggleTryAll = toggleTryAll; 
+window.tryDailyItem = tryDailyItem; 
+window.closeDailyDrop = closeDailyDrop;
+window.takeSnapshot = takeSnapshot; 
+window.downloadAllAsZip = downloadAllAsZip; 
+window.closePreview = closePreview;
+window.downloadSingleSnapshot = downloadSingleSnapshot; 
+window.shareSingleSnapshot = shareSingleSnapshot;
+window.changeLightboxImage = changeLightboxImage; 
+window.toggleCoShop = toggleCoShop;
+window.closeCoShopModal = closeCoShopModal;
+window.copyInviteLink = copyInviteLink;
+window.sendVote = (val) => coShop.sendVote(val);
+
+function toggleCoShop() {
+    const modal = document.getElementById('coshop-modal');
+    if (coShop.myId) {
+        document.getElementById('invite-link-box').innerText = window.location.origin + window.location.pathname + "?room=" + coShop.myId;
+        modal.style.display = 'flex';
+    } else {
+        showToast("Generating ID...");
+    }
+}
+function closeCoShopModal() { document.getElementById('coshop-modal').style.display = 'none'; }
+function copyInviteLink() {
+    const text = document.getElementById('invite-link-box').innerText;
+    navigator.clipboard.writeText(text).then(() => showToast("Link Copied!"));
+}
+
+// Flash Animation (same)
+function triggerFlash() { if(!flashOverlay) return; flashOverlay.classList.remove('flash-active'); void flashOverlay.offsetWidth; flashOverlay.classList.add('flash-active'); setTimeout(() => { flashOverlay.classList.remove('flash-active'); }, 300); }
+function toggleTryAll() { if (!currentType) { alert("Select category!"); return; } if (autoTryRunning) stopAutoTry(); else startAutoTry(); }
+function startAutoTry() { autoTryRunning = true; autoSnapshots = []; autoTryIndex = 0; document.getElementById('tryall-btn').textContent = "STOP"; runAutoStep(); }
+function stopAutoTry() { autoTryRunning = false; clearTimeout(autoTryTimeout); document.getElementById('tryall-btn').textContent = "Try All"; if (autoSnapshots.length > 0) showGallery(); }
+async function runAutoStep() { if (!autoTryRunning) return; const assets = JEWELRY_ASSETS[currentType]; if (!assets || autoTryIndex >= assets.length) { stopAutoTry(); return; } const asset = assets[autoTryIndex]; const highResImg = await loadAsset(asset.fullSrc, asset.id); setActiveARImage(highResImg); currentAssetName = asset.name; autoTryTimeout = setTimeout(() => { triggerFlash(); captureToGallery(); autoTryIndex++; runAutoStep(); }, 1500); }
+function captureToGallery() { const tempCanvas = document.createElement('canvas'); tempCanvas.width = videoElement.videoWidth; tempCanvas.height = videoElement.videoHeight; const tempCtx = tempCanvas.getContext('2d'); if (currentCameraMode === 'environment') { tempCtx.translate(0, 0); tempCtx.scale(1, 1); } else { tempCtx.translate(tempCanvas.width, 0); tempCtx.scale(-1, 1); } tempCtx.drawImage(videoElement, 0, 0); tempCtx.setTransform(1, 0, 0, 1, 0, 0); try { tempCtx.drawImage(canvasElement, 0, 0); } catch(e) {} let cleanName = currentAssetName.replace(/\.(png|jpg|jpeg|webp)$/i, "").replace(/_/g, " "); cleanName = cleanName.charAt(0).toUpperCase() + cleanName.slice(1); const padding = tempCanvas.width * 0.04; const titleSize = tempCanvas.width * 0.045; const descSize = tempCanvas.width * 0.035; const contentHeight = (titleSize * 2) + descSize + padding; const gradient = tempCtx.createLinearGradient(0, tempCanvas.height - contentHeight - padding, 0, tempCanvas.height); gradient.addColorStop(0, "rgba(0,0,0,0)"); gradient.addColorStop(0.2, "rgba(0,0,0,0.8)"); gradient.addColorStop(1, "rgba(0,0,0,0.95)"); tempCtx.fillStyle = gradient; tempCtx.fillRect(0, tempCanvas.height - contentHeight - padding, tempCanvas.width, contentHeight + padding); tempCtx.font = `bold ${titleSize}px Playfair Display, serif`; tempCtx.fillStyle = "#d4af37"; tempCtx.textAlign = "left"; tempCtx.textBaseline = "top"; tempCtx.fillText("Product Description", padding, tempCanvas.height - contentHeight); tempCtx.font = `${descSize}px Montserrat, sans-serif`; tempCtx.fillStyle = "#ffffff"; tempCtx.fillText(cleanName, padding, tempCanvas.height - contentHeight + (titleSize * 1.5)); if (watermarkImg.complete) { const wWidth = tempCanvas.width * 0.25; const wHeight = (watermarkImg.height / watermarkImg.width) * wWidth; tempCtx.drawImage(watermarkImg, tempCanvas.width - wWidth - padding, padding, wWidth, wHeight); } const dataUrl = tempCanvas.toDataURL('image/png'); const safeName = "Jewels_Look"; autoSnapshots.push({ url: dataUrl, name: `${safeName}_${Date.now()}.png` }); return { url: dataUrl, name: `${safeName}_${Date.now()}.png` }; }
+function takeSnapshot() { triggerFlash(); const shotData = captureToGallery(); currentPreviewData = shotData; document.getElementById('preview-image').src = shotData.url; document.getElementById('preview-modal').style.display = 'flex'; }
+function downloadSingleSnapshot() { if(!currentPreviewData.url) return; saveAs(currentPreviewData.url, currentPreviewData.name); }
+function downloadAllAsZip() { if (autoSnapshots.length === 0) return; const zip = new JSZip(); const folder = zip.folder("Jewels-Ai_Collection"); autoSnapshots.forEach(item => folder.file(item.name, item.url.replace(/^data:image\/(png|jpg);base64,/, ""), {base64:true})); zip.generateAsync({type:"blob"}).then(content => saveAs(content, "Jewels-Ai_Collection.zip")); }
+function shareSingleSnapshot() { if(!currentPreviewData.url) return; fetch(currentPreviewData.url).then(res => res.blob()).then(blob => { const file = new File([blob], "look.png", { type: "image/png" }); if (navigator.share) navigator.share({ files: [file] }); }); }
+function changeLightboxImage(dir) { if (autoSnapshots.length === 0) return; currentLightboxIndex = (currentLightboxIndex + dir + autoSnapshots.length) % autoSnapshots.length; document.getElementById('lightbox-image').src = autoSnapshots[currentLightboxIndex].url; }
+function showGallery() { const grid = document.getElementById('gallery-grid'); grid.innerHTML = ''; autoSnapshots.forEach((item, index) => { const card = document.createElement('div'); card.className = "gallery-card"; const img = document.createElement('img'); img.src = item.url; img.className = "gallery-img"; const overlay = document.createElement('div'); overlay.className = "gallery-overlay"; let cleanName = item.name.replace("Jewels-Ai_", "").replace(".png", "").substring(0,12); overlay.innerHTML = `<span class="overlay-text">${cleanName}</span><div class="overlay-icon">👁️</div>`; card.onclick = () => { currentLightboxIndex = index; document.getElementById('lightbox-image').src = item.url; document.getElementById('lightbox-overlay').style.display = 'flex'; }; card.appendChild(img); card.appendChild(overlay); grid.appendChild(card); }); document.getElementById('gallery-modal').style.display = 'flex'; }
+function closePreview() { document.getElementById('preview-modal').style.display = 'none'; }
+function closeGallery() { document.getElementById('gallery-modal').style.display = 'none'; }
+function closeLightbox() { document.getElementById('lightbox-overlay').style.display = 'none'; }
+
+// Reaction Animation
+function showReaction(type) {
+    const container = document.getElementById('reaction-container');
+    const el = document.createElement('div');
+    el.innerText = type === 'love' ? '❤️' : '👎';
+    el.className = 'floating-reaction';
+    el.style.left = Math.random() * 80 + 10 + '%';
+    container.appendChild(el);
+    setTimeout(() => el.remove(), 2000);
+}
