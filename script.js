@@ -1,6 +1,6 @@
-/* script.js - Jewels-Ai Atelier: v6.1 (Host-Only Control) */
+/* script.js - Jewels-Ai Atelier: v7.0 (Live Stream Party Mode) */
 
-/* --- CONFIGURATION --- */
+/* --- 1. CONFIGURATION --- */
 const API_KEY = "AIzaSyAXG3iG2oQjUA_BpnO8dK8y-MHJ7HLrhyE"; 
 
 const DRIVE_FOLDERS = {
@@ -10,7 +10,7 @@ const DRIVE_FOLDERS = {
   bangles: "1d2b7I8XlhIEb8S_eXnRFBEaNYSwngnba"
 };
 
-/* --- ASSETS & STATE --- */
+/* --- 2. ASSETS & STATE --- */
 const JEWELRY_ASSETS = {}; 
 const CATALOG_PROMISES = {}; 
 const IMAGE_CACHE = {}; 
@@ -60,27 +60,43 @@ let handSmoother = {
     bangle: { x: 0, y: 0, angle: 0, size: 0 }
 };
 
-/* --- CO-SHOPPING ENGINE (HOST CONTROL) --- */
+/* --- 3. CO-SHOPPING ENGINE (LIVE STREAM VERSION) --- */
 const coShop = {
     peer: null,
-    conns: [],
+    conns: [],      // Data connections
+    calls: [],      // Video calls
     myId: null,
     active: false,
-    isHost: false, // Default to false
+    isHost: false,
     
     init: function() {
-        this.peer = new Peer(null, { debug: 2 });
+        // Initialize PeerJS
+        this.peer = new Peer(null, { debug: 1 });
         
+        // 1. Get My ID
         this.peer.on('open', (id) => {
             this.myId = id;
             console.log("My Peer ID: " + id);
             this.checkForInvite();
         });
 
+        // 2. Handle Incoming Data Connections
         this.peer.on('connection', (c) => {
             this.handleConnection(c);
-            showToast("New Friend Joined!");
-            this.activateUI();
+        });
+        
+        // 3. GUEST: Listen for Incoming Video Call (Host's Stream)
+        this.peer.on('call', (call) => {
+            console.log("Receiving Live Stream...");
+            call.answer(); // Answer (View Only)
+            
+            call.on('stream', (remoteStream) => {
+                // Switch video element to show Host
+                videoElement.srcObject = remoteStream;
+                videoElement.classList.remove('no-mirror'); // Don't mirror host
+                videoElement.play();
+                showToast("🔴 Watching Host Live");
+            });
         });
 
         this.peer.on('error', (err) => console.error("PeerJS Error:", err));
@@ -90,12 +106,12 @@ const coShop = {
         const urlParams = new URLSearchParams(window.location.search);
         const roomId = urlParams.get('room');
         if (roomId) {
-            console.log("Joining Party as Guest: " + roomId);
-            this.isHost = false; // I am a Guest
+            console.log("Joining Party: " + roomId);
+            this.isHost = false; 
             this.connectToHost(roomId);
         } else {
             console.log("Starting Party as Host");
-            this.isHost = true; // I am the Host
+            this.isHost = true;
         }
     },
 
@@ -107,14 +123,21 @@ const coShop = {
     handleConnection: function(c) {
         c.on('open', () => {
             this.conns.push(c); 
+            console.log("Connected to: " + c.peer);
             this.activateUI();
             
-            // If I am Host, send my current look to the new guest immediately
-            if (this.isHost && this.active) {
+            // HOST: Call the new Guest with my Video Stream
+            if (this.isHost) {
+                if (videoElement.srcObject) {
+                    const call = this.peer.call(c.peer, videoElement.srcObject);
+                    this.calls.push(call);
+                }
+                // Send current look immediately
                 setTimeout(() => this.sendUpdate(currentType, currentAssetIndex), 1000);
             }
 
             c.on('data', (data) => this.handleData(data, c));
+            
             c.on('close', () => {
                 this.conns = this.conns.filter(p => p !== c);
                 showToast("Friend Left");
@@ -124,17 +147,25 @@ const coShop = {
 
     handleData: function(data, senderConn) {
         if (data.type === 'SYNC_ITEM') {
-            // Apply item locally (Pass TRUE for fromSync to bypass the "Host Only" block)
+            // Apply Item (bypass host check with true)
             selectJewelryType(data.cat, true).then(() => {
                 applyAssetInstantly(JEWELRY_ASSETS[data.cat][data.idx], data.idx, false);
             });
             
-            // If I am Host, relay to others
+            // Relay if I am Host
             if (this.isHost) this.broadcast(data, senderConn);
             
         } else if (data.type === 'VOTE') {
             showReaction(data.val);
             if (this.isHost) this.broadcast(data, senderConn);
+
+        } else if (data.type === 'SESSION_END') {
+            // GUEST: Host Disconnected -> Switch back to Self Camera
+            showToast("✨ Your Turn! Camera Starting...");
+            startCameraFast('user'); // Revert to local camera
+            
+            this.active = false; // Disable "Blocker"
+            document.getElementById('voting-ui').style.display = 'none';
         }
     },
 
@@ -155,24 +186,52 @@ const coShop = {
         showReaction(val); 
     },
     
+    // HOST: End Session Logic
+    stopSession: function() {
+        this.broadcast({ type: 'SESSION_END' });
+        
+        // Close all video calls
+        this.calls.forEach(call => call.close());
+        
+        // Close all data connections
+        this.conns.forEach(conn => conn.close());
+        
+        this.conns = [];
+        this.calls = [];
+        this.active = false;
+        
+        // Hide Host UI
+        document.getElementById('stop-share-btn').style.display = 'none';
+        document.getElementById('voting-ui').style.display = 'none';
+        
+        showToast("Session Ended");
+    },
+
     activateUI: function() {
         this.active = true;
         document.getElementById('voting-ui').style.display = 'flex';
         document.getElementById('coshop-btn').style.color = '#00ff00';
+        
+        // Show Stop Button ONLY if Host
+        if (this.isHost) {
+            document.getElementById('stop-share-btn').style.display = 'flex';
+        }
     }
 };
 
-/* --- HELPER: LERP --- */
+/* --- 4. HELPER: LERP --- */
 function lerp(start, end, amt) { return (1 - amt) * start + amt * end; }
 
-/* --- 1. DAILY DROP FEATURE --- */
+/* --- 5. DAILY DROP FEATURE --- */
 function checkDailyDrop() {
     const today = new Date().toDateString();
     const lastSeen = localStorage.getItem('jewels_daily_date');
+
     if (lastSeen !== today && JEWELRY_ASSETS['earrings'] && JEWELRY_ASSETS['earrings'].length > 0) {
         const list = JEWELRY_ASSETS['earrings'];
         const randomIdx = Math.floor(Math.random() * list.length);
         dailyItem = { item: list[randomIdx], index: randomIdx, type: 'earrings' };
+        
         document.getElementById('daily-img').src = dailyItem.item.thumbSrc;
         let cleanName = dailyItem.item.name.replace(/\.[^/.]+$/, "").replace(/_/g, " ");
         document.getElementById('daily-name').innerText = cleanName;
@@ -192,12 +251,13 @@ function tryDailyItem() {
     }
 }
 
-/* --- 2. PHYSICS ENGINE --- */
+/* --- 6. PHYSICS ENGINE --- */
 function updatePhysics(headTilt, headX, width) {
     const gravityTarget = -headTilt; 
     physics.earringVelocity += (gravityTarget - physics.earringAngle) * 0.1; 
     physics.earringVelocity *= 0.92; 
     physics.earringAngle += physics.earringVelocity;
+
     const headSpeed = (headX - physics.lastHeadX); 
     physics.lastHeadX = headX;
     physics.swayOffset += headSpeed * -1.5; 
@@ -206,7 +266,7 @@ function updatePhysics(headTilt, headX, width) {
     if (physics.swayOffset < -0.5) physics.swayOffset = -0.5;
 }
 
-/* --- 3. BACKGROUND FETCHING --- */
+/* --- 7. BACKGROUND FETCHING --- */
 function initBackgroundFetch() {
     Object.keys(DRIVE_FOLDERS).forEach(key => { fetchCategoryData(key); });
 }
@@ -218,9 +278,12 @@ function fetchCategoryData(category) {
             const folderId = DRIVE_FOLDERS[category];
             const query = `'${folderId}' in parents and trashed = false and mimeType contains 'image/'`;
             const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&pageSize=1000&fields=files(id,name,thumbnailLink)&key=${API_KEY}`;
+            
             const response = await fetch(url);
             const data = await response.json();
+            
             if (data.error) throw new Error(data.error.message);
+
             JEWELRY_ASSETS[category] = data.files.map(file => {
                 const baseLink = file.thumbnailLink;
                 let thumbSrc, fullSrc;
@@ -241,7 +304,7 @@ function fetchCategoryData(category) {
     return fetchPromise;
 }
 
-/* --- 4. ASSET LOADING --- */
+/* --- 8. ASSET LOADING --- */
 function loadAsset(src, id) {
     return new Promise((resolve) => {
         if (!src) { resolve(null); return; }
@@ -259,22 +322,20 @@ function setActiveARImage(img) {
     else if (currentType === 'bangles') bangleImg = img;
 }
 
-/* --- 5. INITIALIZATION --- */
+/* --- 9. INITIALIZATION --- */
 window.onload = async () => {
     initBackgroundFetch();
     coShop.init(); 
     await startCameraFast('user');
     setTimeout(() => { loadingStatus.style.display = 'none'; }, 2000);
-    await selectJewelryType('earrings', true); // Pass true to allow initial load
+    await selectJewelryType('earrings', true);
 };
 
-/* --- 6. CORE APP LOGIC --- */
-
-// Modified: Accepts 'fromSync' to allow updates from Host but block local clicks
+/* --- 10. CORE APP LOGIC --- */
 async function selectJewelryType(type, fromSync = false) {
-  // SECURITY CHECK: If Party Active AND I am not Host AND this is a local click -> BLOCK
+  // BLOCK Guest interaction
   if (coShop.active && !coShop.isHost && !fromSync) {
-      showToast("🔒 Host controls the session");
+      showToast("🔒 Watching Host Stream");
       return;
   }
 
@@ -282,7 +343,11 @@ async function selectJewelryType(type, fromSync = false) {
   currentType = type;
   
   const targetMode = (type === 'rings' || type === 'bangles') ? 'environment' : 'user';
-  startCameraFast(targetMode); 
+  
+  // Only restart camera if we are NOT watching a stream (or if we are the host)
+  if (!coShop.active || coShop.isHost) {
+      await startCameraFast(targetMode); 
+  }
 
   earringImg = null; necklaceImg = null; ringImg = null; bangleImg = null;
   const container = document.getElementById('jewelry-options'); 
@@ -297,7 +362,6 @@ async function selectJewelryType(type, fromSync = false) {
   
   assets.forEach((asset, i) => {
     const btnImg = new Image(); btnImg.src = asset.thumbSrc; btnImg.crossOrigin = 'anonymous'; btnImg.className = "thumb-btn"; btnImg.loading = "lazy"; 
-    // Button clicks count as "User Action", so fromSync is default false
     btnImg.onclick = () => { applyAssetInstantly(asset, i, true); }; 
     fragment.appendChild(btnImg);
   });
@@ -305,18 +369,17 @@ async function selectJewelryType(type, fromSync = false) {
   applyAssetInstantly(assets[0], 0, false); 
 }
 
-// Modified: Checks Host status before applying/broadcasting
 async function applyAssetInstantly(asset, index, shouldBroadcast = true) {
-    // SECURITY CHECK: If broadcast requested (click) but I am Guest -> BLOCK
+    // SECURITY: Guest Block
     if (shouldBroadcast && coShop.active && !coShop.isHost) {
-        showToast("🔒 Host controls the session");
+        showToast("🔒 Watching Host Stream");
         return;
     }
 
     currentAssetIndex = index; currentAssetName = asset.name; highlightButtonByIndex(index);
     const thumbImg = new Image(); thumbImg.src = asset.thumbSrc; thumbImg.crossOrigin = 'anonymous'; setActiveARImage(thumbImg);
     
-    // Broadcast if valid
+    // Broadcast if Host
     if (shouldBroadcast && coShop.active && coShop.isHost) {
         coShop.sendUpdate(currentType, index);
     }
@@ -333,7 +396,7 @@ function highlightButtonByIndex(index) {
     }
 }
 
-/* --- 7. CAMERA & AI LOOP --- */
+/* --- 11. CAMERA & AI LOOP --- */
 async function startCameraFast(mode = 'user') {
     if (videoElement.srcObject && currentCameraMode === mode && videoElement.readyState >= 2) return;
     currentCameraMode = mode;
@@ -354,7 +417,7 @@ async function detectLoop() {
     requestAnimationFrame(detectLoop);
 }
 
-/* --- 8. MEDIAPIPE FACE --- */
+/* --- 12. MEDIAPIPE FACE --- */
 const faceMesh = new FaceMesh({ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}` });
 faceMesh.setOptions({ refineLandmarks: true, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
 faceMesh.onResults((results) => {
@@ -362,8 +425,14 @@ faceMesh.onResults((results) => {
   const w = videoElement.videoWidth; const h = videoElement.videoHeight;
   canvasElement.width = w; canvasElement.height = h;
   canvasCtx.save(); canvasCtx.clearRect(0, 0, w, h);
-  if (currentCameraMode === 'environment') { canvasCtx.translate(0, 0); canvasCtx.scale(1, 1); } 
-  else { canvasCtx.translate(w, 0); canvasCtx.scale(-1, 1); }
+  
+  // LIVE STREAM LOGIC: If watching host, DON'T mirror the canvas.
+  if (currentCameraMode === 'environment' || (coShop.active && !coShop.isHost)) { 
+      canvasCtx.translate(0, 0); canvasCtx.scale(1, 1); 
+  } else { 
+      canvasCtx.translate(w, 0); canvasCtx.scale(-1, 1); 
+  }
+
   if (results.multiFaceLandmarks && results.multiFaceLandmarks[0]) {
     const lm = results.multiFaceLandmarks[0]; 
     const leftEar = { x: lm[132].x * w, y: lm[132].y * h }; const rightEar = { x: lm[361].x * w, y: lm[361].y * h };
@@ -392,7 +461,7 @@ faceMesh.onResults((results) => {
   canvasCtx.restore();
 });
 
-/* --- 9. MEDIAPIPE HANDS --- */
+/* --- 13. MEDIAPIPE HANDS --- */
 const hands = new Hands({ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}` });
 hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
 function calculateAngle(p1, p2) { return Math.atan2(p2.y - p1.y, p2.x - p1.x); }
@@ -456,6 +525,7 @@ window.toggleCoShop = toggleCoShop;
 window.closeCoShopModal = closeCoShopModal;
 window.copyInviteLink = copyInviteLink;
 window.sendVote = (val) => coShop.sendVote(val);
+window.endSession = () => coShop.stopSession();
 
 function toggleCoShop() {
     const modal = document.getElementById('coshop-modal');
@@ -475,12 +545,8 @@ function copyInviteLink() {
 // Flash Animation
 function triggerFlash() { if(!flashOverlay) return; flashOverlay.classList.remove('flash-active'); void flashOverlay.offsetWidth; flashOverlay.classList.add('flash-active'); setTimeout(() => { flashOverlay.classList.remove('flash-active'); }, 300); }
 
-// Modified Try All: Blocks Guest
 function toggleTryAll() { 
-    if (coShop.active && !coShop.isHost) {
-        showToast("🔒 Host controls the session");
-        return;
-    }
+    if (coShop.active && !coShop.isHost) { showToast("🔒 Watching Host Stream"); return; }
     if (!currentType) { alert("Select category!"); return; } 
     if (autoTryRunning) stopAutoTry(); else startAutoTry(); 
 }

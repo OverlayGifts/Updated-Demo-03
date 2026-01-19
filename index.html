@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>JEWELS-AI | Premium AR</title>
+  <title>JEWELS-AI | Live Party</title>
   
   <link rel="stylesheet" href="style.css" />
 
@@ -12,6 +12,7 @@
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+  
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
 
@@ -57,6 +58,8 @@
           <img src="logo.png" alt="Jewels-ai Logo" class="brand-logo" />
         </div>
         <div class="action-row">
+          <button id="stop-share-btn" onclick="endSession()" title="Stop Sharing" style="display:none; color: #ff4444; border-color: #ff4444;">❌</button>
+          
           <button id="coshop-btn" onclick="toggleCoShop()" title="Co-Shopping Mode">👥</button>
           <button id="snapshot-btn" onclick="takeSnapshot()" title="Take Photo">📷</button>
         </div>
@@ -84,10 +87,10 @@
     <div id="coshop-modal" class="modal-overlay">
         <div class="modal-box">
             <h3 style="color:#d4af37; font-family:'Playfair Display';">Invite a Friend</h3>
-            <p style="color:#ccc; font-size:13px;">Share this link to shop together in real-time.</p>
+            <p style="color:#ccc; font-size:13px;">They will watch you model the jewelry first!</p>
             <div id="invite-link-box" style="background:#333; padding:10px; color:#fff; font-size:12px; word-break:break-all; margin:10px 0; border:1px dashed #666;">Generating Link...</div>
             <button class="pill accent" onclick="copyInviteLink()">Copy Link</button>
-            <button class="btn-text" onclick="closeCoShopModal()" style="margin-top:10px; background:none; border:none; color:#888; text-decoration:underline;">Close</button>
+            <button class="btn-text" onclick="closeCoShopModal()" style="margin-top:10px; background:none; border:none; color:#888; text-decoration:underline; cursor:pointer;">Close</button>
         </div>
     </div>
 

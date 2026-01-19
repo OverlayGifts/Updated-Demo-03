@@ -1,4 +1,4 @@
-/* style.css - Jewels-Ai Atelier: v5.0 (Co-Shopping Enabled) */
+/* style.css - Jewels-Ai Atelier: v7.0 (Live Stream Party Mode) */
 
 /* Import Google Fonts */
 @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=Montserrat:wght@400;600&display=swap');
@@ -57,13 +57,14 @@ body {
 .brand-logo { height: 40px; }
 .action-row { display: flex; gap: 15px; align-items: center; }
 
-#snapshot-btn, #coshop-btn {
+/* Added #stop-share-btn here so it matches the other circular buttons */
+#snapshot-btn, #coshop-btn, #stop-share-btn {
   background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3);
   padding: 0; border-radius: 50%; cursor: pointer; color: white; font-size: 20px; transition: all 0.2s;
   width: 44px; height: 44px; display: flex; align-items: center; justify-content: center;
 }
 
-#snapshot-btn:active, #coshop-btn:active { transform: scale(0.9); background: rgba(255,255,255,0.3); }
+#snapshot-btn:active, #coshop-btn:active, #stop-share-btn:active { transform: scale(0.9); background: rgba(255,255,255,0.3); }
 
 /* --- 4. BOTTOM CONTROLS (Carousel & Pills) --- */
 .controls-panel {
@@ -98,7 +99,7 @@ body {
 
 .thumb-btn:active { transform: scale(0.95); border-color: var(--accent); }
 
-/* --- 5. VOTING UI (NEW) --- */
+/* --- 5. VOTING UI --- */
 .voting-panel {
     position: fixed; bottom: 130px; left: 50%; transform: translateX(-50%);
     display: flex; gap: 20px; z-index: 20;
@@ -125,8 +126,8 @@ body {
     100% { transform: translateY(-600px) scale(1); opacity: 0; }
 }
 
-/* --- 6. MODALS (Preview, Gallery, Lightbox) --- */
-#preview-modal, #gallery-modal, #lightbox-overlay, #coshop-modal {
+/* --- 6. MODALS (Preview, Gallery, Lightbox, CoShop) --- */
+#preview-modal, #gallery-modal, #lightbox-overlay, #coshop-modal, #daily-drop-modal {
     position: fixed; inset: 0; background: rgba(0,0,0,0.95); z-index: 2000;
     display: none; flex-direction: column; align-items: center; justify-content: center; backdrop-filter: blur(8px);
 }
