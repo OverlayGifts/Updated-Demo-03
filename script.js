@@ -1,4 +1,4 @@
-/* script.js - Jewels-Ai Atelier: v6.0 (Group Party Mode) */
+/* script.js - Jewels-Ai Atelier: v6.1 (Host-Only Control) */
 
 /* --- CONFIGURATION --- */
 const API_KEY = "AIzaSyAXG3iG2oQjUA_BpnO8dK8y-MHJ7HLrhyE"; 
@@ -60,25 +60,23 @@ let handSmoother = {
     bangle: { x: 0, y: 0, angle: 0, size: 0 }
 };
 
-/* --- CO-SHOPPING ENGINE (GROUP PARTY VERSION) --- */
+/* --- CO-SHOPPING ENGINE (HOST CONTROL) --- */
 const coShop = {
     peer: null,
-    conns: [], // CHANGED: Now stores an ARRAY of connections (Guest A, Guest B...)
+    conns: [],
     myId: null,
     active: false,
+    isHost: false, // Default to false
     
     init: function() {
-        // Initialize PeerJS
         this.peer = new Peer(null, { debug: 2 });
         
-        // When I get my ID
         this.peer.on('open', (id) => {
             this.myId = id;
             console.log("My Peer ID: " + id);
             this.checkForInvite();
         });
 
-        // When a friend joins ME
         this.peer.on('connection', (c) => {
             this.handleConnection(c);
             showToast("New Friend Joined!");
@@ -92,12 +90,15 @@ const coShop = {
         const urlParams = new URLSearchParams(window.location.search);
         const roomId = urlParams.get('room');
         if (roomId) {
-            console.log("Joining Party: " + roomId);
+            console.log("Joining Party as Guest: " + roomId);
+            this.isHost = false; // I am a Guest
             this.connectToHost(roomId);
+        } else {
+            console.log("Starting Party as Host");
+            this.isHost = true; // I am the Host
         }
     },
 
-    // Guests connect to the Host
     connectToHost: function(hostId) {
         let conn = this.peer.connect(hostId);
         this.handleConnection(conn);
@@ -105,16 +106,15 @@ const coShop = {
 
     handleConnection: function(c) {
         c.on('open', () => {
-            // Add this new friend to our list
             this.conns.push(c); 
-            console.log("Connected to: " + c.peer);
-            
             this.activateUI();
             
-            // Listen for data from this specific friend
+            // If I am Host, send my current look to the new guest immediately
+            if (this.isHost && this.active) {
+                setTimeout(() => this.sendUpdate(currentType, currentAssetIndex), 1000);
+            }
+
             c.on('data', (data) => this.handleData(data, c));
-            
-            // If they leave, remove them from the list
             c.on('close', () => {
                 this.conns = this.conns.filter(p => p !== c);
                 showToast("Friend Left");
@@ -123,26 +123,21 @@ const coShop = {
     },
 
     handleData: function(data, senderConn) {
-        console.log("Received:", data);
-        
         if (data.type === 'SYNC_ITEM') {
-            // 1. Update MY screen locally (without broadcasting back)
-            selectJewelryType(data.cat).then(() => {
+            // Apply item locally (Pass TRUE for fromSync to bypass the "Host Only" block)
+            selectJewelryType(data.cat, true).then(() => {
                 applyAssetInstantly(JEWELRY_ASSETS[data.cat][data.idx], data.idx, false);
             });
             
-            // 2. (Relay) If I am the Host, send this update to everyone else!
-            // This ensures if Guest A changes item, Guest B also sees it.
-            this.broadcast(data, senderConn);
+            // If I am Host, relay to others
+            if (this.isHost) this.broadcast(data, senderConn);
             
         } else if (data.type === 'VOTE') {
             showReaction(data.val);
-            // Relay votes to everyone else too
-            this.broadcast(data, senderConn);
+            if (this.isHost) this.broadcast(data, senderConn);
         }
     },
 
-    // Send data to EVERYONE connected (except the person who sent it)
     broadcast: function(data, excludeConn = null) {
         this.conns.forEach(c => {
             if (c.open && c !== excludeConn) {
@@ -151,15 +146,13 @@ const coShop = {
         });
     },
 
-    // When YOU change jewelry, tell everyone
     sendUpdate: function(category, index) {
         this.broadcast({ type: 'SYNC_ITEM', cat: category, idx: index });
     },
 
-    // When YOU vote, tell everyone
     sendVote: function(val) {
         this.broadcast({ type: 'VOTE', val: val });
-        showReaction(val); // Show on my screen too
+        showReaction(val); 
     },
     
     activateUI: function() {
@@ -176,12 +169,10 @@ function lerp(start, end, amt) { return (1 - amt) * start + amt * end; }
 function checkDailyDrop() {
     const today = new Date().toDateString();
     const lastSeen = localStorage.getItem('jewels_daily_date');
-
     if (lastSeen !== today && JEWELRY_ASSETS['earrings'] && JEWELRY_ASSETS['earrings'].length > 0) {
         const list = JEWELRY_ASSETS['earrings'];
         const randomIdx = Math.floor(Math.random() * list.length);
         dailyItem = { item: list[randomIdx], index: randomIdx, type: 'earrings' };
-        
         document.getElementById('daily-img').src = dailyItem.item.thumbSrc;
         let cleanName = dailyItem.item.name.replace(/\.[^/.]+$/, "").replace(/_/g, " ");
         document.getElementById('daily-name').innerText = cleanName;
@@ -207,7 +198,6 @@ function updatePhysics(headTilt, headX, width) {
     physics.earringVelocity += (gravityTarget - physics.earringAngle) * 0.1; 
     physics.earringVelocity *= 0.92; 
     physics.earringAngle += physics.earringVelocity;
-
     const headSpeed = (headX - physics.lastHeadX); 
     physics.lastHeadX = headX;
     physics.swayOffset += headSpeed * -1.5; 
@@ -228,12 +218,9 @@ function fetchCategoryData(category) {
             const folderId = DRIVE_FOLDERS[category];
             const query = `'${folderId}' in parents and trashed = false and mimeType contains 'image/'`;
             const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&pageSize=1000&fields=files(id,name,thumbnailLink)&key=${API_KEY}`;
-            
             const response = await fetch(url);
             const data = await response.json();
-            
             if (data.error) throw new Error(data.error.message);
-
             JEWELRY_ASSETS[category] = data.files.map(file => {
                 const baseLink = file.thumbnailLink;
                 let thumbSrc, fullSrc;
@@ -275,14 +262,22 @@ function setActiveARImage(img) {
 /* --- 5. INITIALIZATION --- */
 window.onload = async () => {
     initBackgroundFetch();
-    coShop.init(); // Initialize Multiplayer
+    coShop.init(); 
     await startCameraFast('user');
     setTimeout(() => { loadingStatus.style.display = 'none'; }, 2000);
-    await selectJewelryType('earrings');
+    await selectJewelryType('earrings', true); // Pass true to allow initial load
 };
 
 /* --- 6. CORE APP LOGIC --- */
-async function selectJewelryType(type) {
+
+// Modified: Accepts 'fromSync' to allow updates from Host but block local clicks
+async function selectJewelryType(type, fromSync = false) {
+  // SECURITY CHECK: If Party Active AND I am not Host AND this is a local click -> BLOCK
+  if (coShop.active && !coShop.isHost && !fromSync) {
+      showToast("🔒 Host controls the session");
+      return;
+  }
+
   if (currentType === type) return;
   currentType = type;
   
@@ -302,19 +297,27 @@ async function selectJewelryType(type) {
   
   assets.forEach((asset, i) => {
     const btnImg = new Image(); btnImg.src = asset.thumbSrc; btnImg.crossOrigin = 'anonymous'; btnImg.className = "thumb-btn"; btnImg.loading = "lazy"; 
-    btnImg.onclick = () => { applyAssetInstantly(asset, i, true); }; // Pass TRUE to broadcast
+    // Button clicks count as "User Action", so fromSync is default false
+    btnImg.onclick = () => { applyAssetInstantly(asset, i, true); }; 
     fragment.appendChild(btnImg);
   });
   container.appendChild(fragment);
-  applyAssetInstantly(assets[0], 0, false); // Don't broadcast initial load
+  applyAssetInstantly(assets[0], 0, false); 
 }
 
+// Modified: Checks Host status before applying/broadcasting
 async function applyAssetInstantly(asset, index, shouldBroadcast = true) {
+    // SECURITY CHECK: If broadcast requested (click) but I am Guest -> BLOCK
+    if (shouldBroadcast && coShop.active && !coShop.isHost) {
+        showToast("🔒 Host controls the session");
+        return;
+    }
+
     currentAssetIndex = index; currentAssetName = asset.name; highlightButtonByIndex(index);
     const thumbImg = new Image(); thumbImg.src = asset.thumbSrc; thumbImg.crossOrigin = 'anonymous'; setActiveARImage(thumbImg);
     
-    // Broadcast to ALL friends (not just one)
-    if (shouldBroadcast && coShop.active) {
+    // Broadcast if valid
+    if (shouldBroadcast && coShop.active && coShop.isHost) {
         coShop.sendUpdate(currentType, index);
     }
 
@@ -351,7 +354,7 @@ async function detectLoop() {
     requestAnimationFrame(detectLoop);
 }
 
-/* --- 8. MEDIAPIPE FACE (Same as before) --- */
+/* --- 8. MEDIAPIPE FACE --- */
 const faceMesh = new FaceMesh({ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}` });
 faceMesh.setOptions({ refineLandmarks: true, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
 faceMesh.onResults((results) => {
@@ -389,7 +392,7 @@ faceMesh.onResults((results) => {
   canvasCtx.restore();
 });
 
-/* --- 9. MEDIAPIPE HANDS (Same as before) --- */
+/* --- 9. MEDIAPIPE HANDS --- */
 const hands = new Hands({ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}` });
 hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
 function calculateAngle(p1, p2) { return Math.atan2(p2.y - p1.y, p2.x - p1.x); }
@@ -471,7 +474,17 @@ function copyInviteLink() {
 
 // Flash Animation
 function triggerFlash() { if(!flashOverlay) return; flashOverlay.classList.remove('flash-active'); void flashOverlay.offsetWidth; flashOverlay.classList.add('flash-active'); setTimeout(() => { flashOverlay.classList.remove('flash-active'); }, 300); }
-function toggleTryAll() { if (!currentType) { alert("Select category!"); return; } if (autoTryRunning) stopAutoTry(); else startAutoTry(); }
+
+// Modified Try All: Blocks Guest
+function toggleTryAll() { 
+    if (coShop.active && !coShop.isHost) {
+        showToast("🔒 Host controls the session");
+        return;
+    }
+    if (!currentType) { alert("Select category!"); return; } 
+    if (autoTryRunning) stopAutoTry(); else startAutoTry(); 
+}
+
 function startAutoTry() { autoTryRunning = true; autoSnapshots = []; autoTryIndex = 0; document.getElementById('tryall-btn').textContent = "STOP"; runAutoStep(); }
 function stopAutoTry() { autoTryRunning = false; clearTimeout(autoTryTimeout); document.getElementById('tryall-btn').textContent = "Try All"; if (autoSnapshots.length > 0) showGallery(); }
 async function runAutoStep() { if (!autoTryRunning) return; const assets = JEWELRY_ASSETS[currentType]; if (!assets || autoTryIndex >= assets.length) { stopAutoTry(); return; } const asset = assets[autoTryIndex]; const highResImg = await loadAsset(asset.fullSrc, asset.id); setActiveARImage(highResImg); currentAssetName = asset.name; autoTryTimeout = setTimeout(() => { triggerFlash(); captureToGallery(); autoTryIndex++; runAutoStep(); }, 1500); }
@@ -483,3 +496,16 @@ function shareSingleSnapshot() { if(!currentPreviewData.url) return; fetch(curre
 function changeLightboxImage(dir) { if (autoSnapshots.length === 0) return; currentLightboxIndex = (currentLightboxIndex + dir + autoSnapshots.length) % autoSnapshots.length; document.getElementById('lightbox-image').src = autoSnapshots[currentLightboxIndex].url; }
 function showGallery() { const grid = document.getElementById('gallery-grid'); grid.innerHTML = ''; autoSnapshots.forEach((item, index) => { const card = document.createElement('div'); card.className = "gallery-card"; const img = document.createElement('img'); img.src = item.url; img.className = "gallery-img"; const overlay = document.createElement('div'); overlay.className = "gallery-overlay"; let cleanName = item.name.replace("Jewels-Ai_", "").replace(".png", "").substring(0,12); overlay.innerHTML = `<span class="overlay-text">${cleanName}</span><div class="overlay-icon">👁️</div>`; card.onclick = () => { currentLightboxIndex = index; document.getElementById('lightbox-image').src = item.url; document.getElementById('lightbox-overlay').style.display = 'flex'; }; card.appendChild(img); card.appendChild(overlay); grid.appendChild(card); }); document.getElementById('gallery-modal').style.display = 'flex'; }
 function closePreview() { document.getElementById('preview-modal').style.display = 'none'; }
+function closeGallery() { document.getElementById('gallery-modal').style.display = 'none'; }
+function closeLightbox() { document.getElementById('lightbox-overlay').style.display = 'none'; }
+
+// Reaction Animation
+function showReaction(type) {
+    const container = document.getElementById('reaction-container');
+    const el = document.createElement('div');
+    el.innerText = type === 'love' ? '❤️' : '👎';
+    el.className = 'floating-reaction';
+    el.style.left = Math.random() * 80 + 10 + '%';
+    container.appendChild(el);
+    setTimeout(() => el.remove(), 2000);
+}
