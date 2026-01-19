@@ -7,10 +7,11 @@
   
   <link rel="stylesheet" href="style.css" />
 
+  <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
-
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
 
@@ -56,6 +57,7 @@
           <img src="logo.png" alt="Jewels-ai Logo" class="brand-logo" />
         </div>
         <div class="action-row">
+          <button id="coshop-btn" onclick="toggleCoShop()" title="Co-Shopping Mode">👥</button>
           <button id="snapshot-btn" onclick="takeSnapshot()" title="Take Photo">📷</button>
         </div>
       </div>
@@ -71,6 +73,23 @@
         <div id="jewelry-options" class="carousel-cards" style="display:none;"></div>
       </div>
     </header>
+
+    <div id="voting-ui" class="voting-panel" style="display:none;">
+        <button onclick="sendVote('love')" class="vote-btn">❤️ Love</button>
+        <button onclick="sendVote('nope')" class="vote-btn">👎 Next</button>
+    </div>
+    
+    <div id="reaction-container"></div>
+
+    <div id="coshop-modal" class="modal-overlay">
+        <div class="modal-box">
+            <h3 style="color:#d4af37; font-family:'Playfair Display';">Invite a Friend</h3>
+            <p style="color:#ccc; font-size:13px;">Share this link to shop together in real-time.</p>
+            <div id="invite-link-box" style="background:#333; padding:10px; color:#fff; font-size:12px; word-break:break-all; margin:10px 0; border:1px dashed #666;">Generating Link...</div>
+            <button class="pill accent" onclick="copyInviteLink()">Copy Link</button>
+            <button class="btn-text" onclick="closeCoShopModal()" style="margin-top:10px; background:none; border:none; color:#888; text-decoration:underline;">Close</button>
+        </div>
+    </div>
 
     <div id="preview-modal">
         <span class="close-preview" onclick="closePreview()">&times;</span>
@@ -97,16 +116,6 @@
         <div class="lightbox-nav prev" onclick="changeLightboxImage(-1)">&#10094;</div>
         <div class="lightbox-nav next" onclick="changeLightboxImage(1)">&#10095;</div>
         <div class="lightbox-main"><img id="lightbox-image" src="" alt="Zoomed View"></div>
-    </div>
-
-    <div id="whatsapp-modal" class="modal-overlay">
-        <div class="modal-box">
-            <h2 style="color:#d4af37; font-family:'Playfair Display';">Save Your Vibe</h2>
-            <p style="color:#ccc; font-size:14px;">Enter WhatsApp number to download images.</p>
-            <input type="tel" id="user-phone" placeholder="+91 99999 99999" class="input-dark" style="width:90%; padding:10px; margin:10px 0; background:#333; border:1px solid #555; color:white;">
-            <button class="pill accent" onclick="confirmWhatsAppDownload()">Send & Download</button>
-            <button onclick="document.getElementById('whatsapp-modal').style.display='none'" class="btn-text" style="background:none; border:none; color:#888; text-decoration:underline; margin-top:10px; cursor:pointer;">Cancel</button>
-        </div>
     </div>
 
     <div id="daily-drop-modal" class="modal-overlay">

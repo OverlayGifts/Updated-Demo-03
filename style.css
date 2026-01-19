@@ -1,4 +1,4 @@
-/* style.css - Jewels-Ai Atelier: v4.3 (No Voice) */
+/* style.css - Jewels-Ai Atelier: v5.0 (Co-Shopping Enabled) */
 
 /* Import Google Fonts */
 @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=Montserrat:wght@400;600&display=swap');
@@ -57,13 +57,13 @@ body {
 .brand-logo { height: 40px; }
 .action-row { display: flex; gap: 15px; align-items: center; }
 
-#snapshot-btn {
+#snapshot-btn, #coshop-btn {
   background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3);
   padding: 0; border-radius: 50%; cursor: pointer; color: white; font-size: 20px; transition: all 0.2s;
   width: 44px; height: 44px; display: flex; align-items: center; justify-content: center;
 }
 
-#snapshot-btn:active { transform: scale(0.9); background: rgba(255,255,255,0.3); }
+#snapshot-btn:active, #coshop-btn:active { transform: scale(0.9); background: rgba(255,255,255,0.3); }
 
 /* --- 4. BOTTOM CONTROLS (Carousel & Pills) --- */
 .controls-panel {
@@ -98,8 +98,35 @@ body {
 
 .thumb-btn:active { transform: scale(0.95); border-color: var(--accent); }
 
-/* --- 5. MODALS (Preview, Gallery, Lightbox) --- */
-#preview-modal, #gallery-modal, #lightbox-overlay {
+/* --- 5. VOTING UI (NEW) --- */
+.voting-panel {
+    position: fixed; bottom: 130px; left: 50%; transform: translateX(-50%);
+    display: flex; gap: 20px; z-index: 20;
+}
+
+.vote-btn {
+    background: rgba(0,0,0,0.8); border: 2px solid var(--accent);
+    color: var(--accent); padding: 10px 20px; border-radius: 30px;
+    font-weight: bold; cursor: pointer; transition: all 0.2s;
+}
+
+.vote-btn:active { transform: scale(0.9); background: var(--accent); color: black; }
+
+/* Floating Reactions */
+#reaction-container { position: fixed; inset: 0; pointer-events: none; z-index: 9999; overflow: hidden; }
+.floating-reaction {
+    position: absolute; bottom: 0; font-size: 50px;
+    animation: floatUp 2s ease-in forwards; opacity: 0;
+}
+
+@keyframes floatUp {
+    0% { transform: translateY(0) scale(0.5); opacity: 0; }
+    20% { opacity: 1; transform: translateY(-100px) scale(1.2); }
+    100% { transform: translateY(-600px) scale(1); opacity: 0; }
+}
+
+/* --- 6. MODALS (Preview, Gallery, Lightbox) --- */
+#preview-modal, #gallery-modal, #lightbox-overlay, #coshop-modal {
     position: fixed; inset: 0; background: rgba(0,0,0,0.95); z-index: 2000;
     display: none; flex-direction: column; align-items: center; justify-content: center; backdrop-filter: blur(8px);
 }
@@ -155,7 +182,7 @@ body {
 .close-preview, .close-gallery, .close-lightbox { position: absolute; top: 15px; right: 20px; font-size: 30px; color: #888; cursor: pointer; z-index: 2001; }
 .close-preview:hover, .close-gallery:hover, .close-lightbox:hover { color: var(--accent); }
 
-/* --- 6. PROCESSING SPINNER --- */
+/* --- 7. PROCESSING SPINNER --- */
 #process-overlay {
     position: fixed; inset: 0; background: rgba(0,0,0,0.95); z-index: 4000;
     display: none; align-items: center; justify-content: center;
