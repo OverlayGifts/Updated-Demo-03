@@ -1,4 +1,4 @@
-/* style.css - Jewels-Ai Atelier: v8.0 (Live Party Final) */
+/* style.css - Jewels-Ai Atelier: v9.1 (Live Party Final) */
 
 /* Import Google Fonts */
 @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=Montserrat:wght@400;600&display=swap');
@@ -57,19 +57,14 @@ body {
 .brand-logo { height: 40px; }
 .action-row { display: flex; gap: 15px; align-items: center; }
 
-/* Buttons: Camera, Invite, and STOP */
-#snapshot-btn, #coshop-btn, #stop-share-btn {
+/* Buttons: Camera & Smart Button */
+#snapshot-btn, #smart-btn {
   background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3);
   padding: 0; border-radius: 50%; cursor: pointer; color: white; font-size: 20px; transition: all 0.2s;
   width: 44px; height: 44px; display: flex; align-items: center; justify-content: center;
 }
 
-#stop-share-btn {
-    width: auto; padding: 0 15px; border-radius: 20px; /* Text button style for "END" */
-    font-size: 14px; letter-spacing: 1px;
-}
-
-#snapshot-btn:active, #coshop-btn:active, #stop-share-btn:active { transform: scale(0.9); background: rgba(255,255,255,0.3); }
+#snapshot-btn:active, #smart-btn:active { transform: scale(0.9); background: rgba(255,255,255,0.3); }
 
 /* --- 4. BOTTOM CONTROLS (Carousel & Pills) --- */
 .controls-panel {
