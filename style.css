@@ -1,4 +1,4 @@
-/* style.css - Jewels-Ai Atelier: Clean Single User */
+/* style.css - Jewels-Ai Atelier: v5.0 (Co-Shopping Enabled) */
 
 /* Import Google Fonts */
 @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=Montserrat:wght@400;600&display=swap');
@@ -46,7 +46,7 @@ body {
     font-family: 'Playfair Display'; font-size: 18px; z-index: 500; backdrop-filter: blur(5px);
 }
 
-/* --- 3. TOP CONTROLS --- */
+/* --- 3. TOP CONTROLS (Brand & Actions) --- */
 #controls-hero {
   position: fixed; top: 0; left: 0; right: 0; padding: 20px;
   background: linear-gradient(to bottom, rgba(0,0,0,0.9), transparent);
@@ -57,15 +57,15 @@ body {
 .brand-logo { height: 40px; }
 .action-row { display: flex; gap: 15px; align-items: center; }
 
-#snapshot-btn {
+#snapshot-btn, #coshop-btn {
   background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3);
   padding: 0; border-radius: 50%; cursor: pointer; color: white; font-size: 20px; transition: all 0.2s;
   width: 44px; height: 44px; display: flex; align-items: center; justify-content: center;
 }
 
-#snapshot-btn:active { transform: scale(0.9); background: rgba(255,255,255,0.3); }
+#snapshot-btn:active, #coshop-btn:active { transform: scale(0.9); background: rgba(255,255,255,0.3); }
 
-/* --- 4. BOTTOM CONTROLS --- */
+/* --- 4. BOTTOM CONTROLS (Carousel & Pills) --- */
 .controls-panel {
   position: fixed; bottom: 20px; width: 100%; 
   display: flex; flex-direction: column; align-items: center; z-index: 15;
@@ -86,9 +86,9 @@ body {
 
 .carousel-cards {
   display: flex; gap: 10px; overflow-x: auto; padding: 10px; max-width: 100%;
-  scrollbar-width: none;
+  scrollbar-width: none; /* Hide scrollbar Firefox */
 }
-.carousel-cards::-webkit-scrollbar { display: none; }
+.carousel-cards::-webkit-scrollbar { display: none; /* Hide scrollbar Chrome */ }
 
 .thumb-btn { 
   height: 60px; width: 60px; object-fit: contain; background: rgba(0,0,0,0.6);
@@ -98,8 +98,35 @@ body {
 
 .thumb-btn:active { transform: scale(0.95); border-color: var(--accent); }
 
-/* --- 5. MODALS --- */
-#preview-modal, #gallery-modal, #lightbox-overlay {
+/* --- 5. VOTING UI (NEW) --- */
+.voting-panel {
+    position: fixed; bottom: 130px; left: 50%; transform: translateX(-50%);
+    display: flex; gap: 20px; z-index: 20;
+}
+
+.vote-btn {
+    background: rgba(0,0,0,0.8); border: 2px solid var(--accent);
+    color: var(--accent); padding: 10px 20px; border-radius: 30px;
+    font-weight: bold; cursor: pointer; transition: all 0.2s;
+}
+
+.vote-btn:active { transform: scale(0.9); background: var(--accent); color: black; }
+
+/* Floating Reactions */
+#reaction-container { position: fixed; inset: 0; pointer-events: none; z-index: 9999; overflow: hidden; }
+.floating-reaction {
+    position: absolute; bottom: 0; font-size: 50px;
+    animation: floatUp 2s ease-in forwards; opacity: 0;
+}
+
+@keyframes floatUp {
+    0% { transform: translateY(0) scale(0.5); opacity: 0; }
+    20% { opacity: 1; transform: translateY(-100px) scale(1.2); }
+    100% { transform: translateY(-600px) scale(1); opacity: 0; }
+}
+
+/* --- 6. MODALS (Preview, Gallery, Lightbox) --- */
+#preview-modal, #gallery-modal, #lightbox-overlay, #coshop-modal {
     position: fixed; inset: 0; background: rgba(0,0,0,0.95); z-index: 2000;
     display: none; flex-direction: column; align-items: center; justify-content: center; backdrop-filter: blur(8px);
 }
@@ -108,6 +135,7 @@ body {
 #preview-image, #lightbox-image { max-width: 100%; max-height: 70vh; border: 2px solid var(--accent); border-radius: 12px; box-shadow: 0 0 30px rgba(0,0,0,0.5); }
 .preview-actions { margin-top: 20px; display: flex; gap: 15px; }
 
+/* Lightbox Arrows */
 .lightbox-nav {
     position: absolute; top: 50%; transform: translateY(-50%); font-size: 50px; color: rgba(255,255,255,0.6); 
     cursor: pointer; padding: 20px; user-select: none; z-index: 2002; transition: all 0.3s ease;
@@ -115,6 +143,7 @@ body {
 .lightbox-nav:hover { color: var(--accent); transform: translateY(-50%) scale(1.2); }
 .prev { left: 10px; } .next { right: 10px; }
 
+/* Gallery Layout */
 .gallery-content {
     background: rgba(18, 18, 18, 0.95); width: 90%; max-width: 900px; height: 80vh; padding: 30px;
     border-radius: 20px; border: 1px solid rgba(212, 175, 55, 0.3); box-shadow: 0 20px 60px rgba(0,0,0,0.8);
@@ -149,10 +178,11 @@ body {
 .gallery-card:hover .gallery-overlay { opacity: 1; transform: translateY(0); }
 .overlay-text { font-size: 14px; color: #fff; font-weight: 600; text-transform: uppercase; }
 
+/* Close Buttons */
 .close-preview, .close-gallery, .close-lightbox { position: absolute; top: 15px; right: 20px; font-size: 30px; color: #888; cursor: pointer; z-index: 2001; }
 .close-preview:hover, .close-gallery:hover, .close-lightbox:hover { color: var(--accent); }
 
-/* --- 6. PROCESSING SPINNER --- */
+/* --- 7. PROCESSING SPINNER --- */
 #process-overlay {
     position: fixed; inset: 0; background: rgba(0,0,0,0.95); z-index: 4000;
     display: none; align-items: center; justify-content: center;
