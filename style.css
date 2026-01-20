@@ -1,4 +1,4 @@
-/* style.css - Jewels-Ai Atelier: v10.0 (Final Live Party) */
+/* style.css - Jewels-Ai Atelier: Final Version */
 
 /* Import Google Fonts */
 @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=Montserrat:wght@400;600&display=swap');
@@ -33,8 +33,8 @@ body {
     object-fit: cover; transform: scaleX(-1); 
 }
 
-/* *** ZOOM FIX: Remote Stream Class (Added via JS) *** */
-/* This ensures the Host's video fits the screen without zooming/cropping */
+/* *** ZOOM FIX: Remote Stream Class (Applied by JS) *** */
+/* This ensures the Host's video fits the Guest's screen without zooming/cropping */
 video.remote-stream { 
     object-fit: contain !important; 
     transform: none !important; 

@@ -1,4 +1,4 @@
-/* script.js - Jewels-Ai Atelier: v10.0 (Smart Button, Zoom Fix & Live Party) */
+/* script.js - Jewels-Ai Atelier: v11.0 (Canvas Streaming Fix) */
 
 /* --- 1. CONFIGURATION --- */
 const API_KEY = "AIzaSyAXG3iG2oQjUA_BpnO8dK8y-MHJ7HLrhyE"; 
@@ -26,17 +26,15 @@ const smartBtn = document.getElementById('smart-btn');
 let earringImg = null, necklaceImg = null, ringImg = null, bangleImg = null;
 let currentType = ''; 
 let isProcessingHand = false, isProcessingFace = false;
-let lastGestureTime = 0;
-const GESTURE_COOLDOWN = 800; 
-let previousHandX = null;     
-let currentAssetName = "Select a Design"; 
-let currentAssetIndex = 0; 
+// NEW: Tracking variable to pause AI on guest side
+let isGuestWatching = false; 
 
 /* Physics & Stabilizer */
 let physics = { earringAngle: 0, earringVelocity: 0, swayOffset: 0, lastHeadX: 0 };
 const SMOOTH_FACTOR = 0.8; 
 let handSmoother = { active: false, ring: {x:0,y:0,angle:0,size:0}, bangle: {x:0,y:0,angle:0,size:0} };
 let currentCameraMode = 'user'; 
+let currentAssetIndex = 0; let currentAssetName = "Select a Design"; 
 
 /* --- 3. CO-SHOPPING ENGINE --- */
 const coShop = {
@@ -47,15 +45,21 @@ const coShop = {
         this.peer.on('open', (id) => { this.myId = id; this.checkForInvite(); });
         this.peer.on('connection', (c) => { this.handleConnection(c); });
         
-        // GUEST: Receive Video Stream
+        // GUEST: Receive Stream
         this.peer.on('call', (call) => {
             call.answer(); 
             call.on('stream', (remoteStream) => {
-                // *** ZOOM FIX: Apply specific class for remote viewing ***
+                // *** FIX 1: STOP LOCAL AI & SHOW REMOTE STREAM ***
+                isGuestWatching = true; // Stop running FaceMesh locally
+                
+                // Show Host Stream (Canvas Stream has Video+Jewelry combined)
                 videoElement.srcObject = remoteStream;
-                videoElement.classList.add('remote-stream'); // Forces object-fit: contain
-                videoElement.classList.remove('no-mirror');  // Don't mirror host video
+                videoElement.classList.add('remote-stream'); // Fix Zoom
+                videoElement.classList.remove('no-mirror'); 
                 videoElement.play();
+                
+                // Hide Canvas (Host video already has jewelry)
+                canvasElement.style.display = 'none'; 
                 
                 loadingStatus.style.display = 'none';
                 document.getElementById('live-badge').style.display = 'block';
@@ -67,25 +71,19 @@ const coShop = {
     checkForInvite: function() {
         const urlParams = new URLSearchParams(window.location.search);
         const roomId = urlParams.get('room');
-        
         if (roomId) {
-            // --- GUEST MODE ---
-            this.isHost = false; 
-            this.active = true;
-            document.getElementById('main-controls').style.display = 'none'; // Hide controls
-            document.getElementById('voting-ui').style.display = 'flex';     // Show reactions
-            smartBtn.style.display = 'none';                                 // Hide Smart Button for Guest
-            
+            // Guest Mode
+            this.isHost = false; this.active = true;
+            document.getElementById('main-controls').style.display = 'none'; 
+            document.getElementById('voting-ui').style.display = 'flex';     
+            smartBtn.style.display = 'none';                                 
             loadingStatus.innerText = "Connecting to Host...";
             loadingStatus.style.display = 'block';
             this.connectToHost(roomId);
         } else {
-            // --- HOST MODE ---
-            this.isHost = true; 
-            this.active = true;
-            smartBtn.innerText = "👥"; // Default: Invite
-            
-            // Start Camera immediately
+            // Host Mode
+            this.isHost = true; this.active = true;
+            smartBtn.innerText = "👥";
             startCameraFast('user').then(() => {
                 selectJewelryType('earrings');
                 setTimeout(() => { loadingStatus.style.display = 'none'; }, 2000);
@@ -105,21 +103,21 @@ const coShop = {
             // HOST: Guest Joined
             if (this.isHost) {
                 showToast("Guest Joined!");
-                updateSmartButton("end"); // Switch icon to X
+                updateSmartButton("end"); 
                 
-                // Call Guest with Video
-                if (videoElement.srcObject) {
-                    const call = this.peer.call(c.peer, videoElement.srcObject);
-                    this.calls.push(call);
-                }
-                // Sync Initial State
+                // *** FIX 2: STREAM THE CANVAS (NOT THE CAMERA) ***
+                // This ensures Guest sees exactly what Host sees (Video + Jewelry)
+                const canvasStream = canvasElement.captureStream(30); // 30 FPS
+                const call = this.peer.call(c.peer, canvasStream);
+                this.calls.push(call);
+                
+                // Sync UI text (Name/Price) only
                 setTimeout(() => this.sendUpdate(currentType, currentAssetIndex), 1500);
             }
 
             c.on('data', (data) => this.handleData(data, c));
             c.on('close', () => { 
                 this.conns = this.conns.filter(p => p !== c); 
-                // If all guests left, revert button to Invite
                 if(this.conns.length === 0 && this.isHost) updateSmartButton("invite");
             });
         });
@@ -127,10 +125,10 @@ const coShop = {
 
     handleData: function(data, senderConn) {
         if (data.type === 'SYNC_ITEM') {
-            // Guest updates internal state (even if watching video)
-            selectJewelryType(data.cat, true).then(() => {
-                applyAssetInstantly(JEWELRY_ASSETS[data.cat][data.idx], data.idx, false);
-            });
+            // Guest just updates the text logic, visuals are in the video
+            currentAssetIndex = data.idx;
+            currentAssetName = JEWELRY_ASSETS[data.cat][data.idx].name;
+            // No need to load heavy assets if we are just watching video
             if (this.isHost) this.broadcast(data, senderConn);
             
         } else if (data.type === 'VOTE') {
@@ -138,26 +136,30 @@ const coShop = {
             if (this.isHost) this.broadcast(data, senderConn);
 
         } else if (data.type === 'SESSION_END') {
-            // --- GUEST: HOST ENDED SESSION ---
+            // *** FIX 3: DISCONNECT & RESTART GUEST CAMERA ***
             showToast("✨ Your Turn!");
             
-            // 1. Cleanup Video Stream
+            // 1. Cleanup
             if(videoElement.srcObject) {
                 videoElement.srcObject.getTracks().forEach(track => track.stop());
                 videoElement.srcObject = null;
             }
-            
-            // 2. Remove Zoom Fix (Restore Local Camera Fit)
             videoElement.classList.remove('remote-stream');
-
+            
+            // 2. Reactivate Local Features
+            isGuestWatching = false; // Re-enable AI
+            canvasElement.style.display = 'block'; // Show local canvas
+            
             // 3. Reset UI
             document.getElementById('live-badge').style.display = 'none';
             document.getElementById('main-controls').style.display = 'flex'; 
             document.getElementById('voting-ui').style.display = 'none';
             
-            // 4. Start Local Camera
+            // 4. Start Camera & Load First Product
             this.active = false; 
-            startCameraFast('user'); 
+            startCameraFast('user').then(() => {
+                selectJewelryType('earrings'); 
+            });
         }
     },
 
@@ -173,32 +175,21 @@ const coShop = {
         this.conns.forEach(conn => conn.close());
         this.conns = []; this.calls = [];
         this.active = false;
-        
-        updateSmartButton("invite"); // Reset button
+        updateSmartButton("invite");
         showToast("Session Ended");
     }
 };
 
-/* --- 4. SMART BUTTON LOGIC --- */
 function handleSmartClick() {
-    if (coShop.isHost && coShop.conns.length > 0) {
-        // If guests are connected -> END SESSION
-        coShop.stopSession();
-    } else {
-        // If no one is connected -> OPEN INVITE
-        toggleCoShop();
-    }
+    if (coShop.isHost && coShop.conns.length > 0) coShop.stopSession();
+    else toggleCoShop();
 }
 
 function updateSmartButton(state) {
     if (state === "end") {
-        smartBtn.innerText = "❌";
-        smartBtn.style.color = "#ff4444";
-        smartBtn.style.borderColor = "#ff4444";
+        smartBtn.innerText = "❌"; smartBtn.style.color = "#ff4444"; smartBtn.style.borderColor = "#ff4444";
     } else {
-        smartBtn.innerText = "👥";
-        smartBtn.style.color = "white";
-        smartBtn.style.borderColor = "rgba(255,255,255,0.3)";
+        smartBtn.innerText = "👥"; smartBtn.style.color = "white"; smartBtn.style.borderColor = "rgba(255,255,255,0.3)";
     }
 }
 
@@ -208,18 +199,14 @@ window.onload = async () => {
     coShop.init(); 
 };
 
-/* --- 6. CORE APP LOGIC --- */
+/* --- 6. CORE LOGIC --- */
 async function selectJewelryType(type, fromSync = false) {
   if (coShop.active && !coShop.isHost && !fromSync) return; 
   if (currentType === type) return;
   currentType = type;
   const targetMode = (type === 'rings' || type === 'bangles') ? 'environment' : 'user';
-  
-  // Only restart local camera if we are NOT watching a remote stream
   if (!coShop.active || coShop.isHost) {
-      if(videoElement.srcObject && !videoElement.classList.contains('remote-stream')) {
-          await startCameraFast(targetMode); 
-      }
+      if(!isGuestWatching) await startCameraFast(targetMode); 
   }
 
   earringImg = null; necklaceImg = null; ringImg = null; bangleImg = null;
@@ -258,8 +245,7 @@ function highlightButtonByIndex(index) {
 
 /* --- 7. CAMERA & AI LOOP --- */
 async function startCameraFast(mode = 'user') {
-    // Safety check: Don't override remote stream unless explicitly stopped
-    if (videoElement.classList.contains('remote-stream') && coShop.active && !coShop.isHost) return;
+    if (isGuestWatching) return; // Don't override if watching host
 
     if (videoElement.srcObject && currentCameraMode === mode && videoElement.readyState >= 2) return;
     currentCameraMode = mode;
@@ -273,6 +259,12 @@ async function startCameraFast(mode = 'user') {
 }
 
 async function detectLoop() {
+    // *** OPTIMIZATION: Stop loop if Guest is watching Host ***
+    if (isGuestWatching) {
+        requestAnimationFrame(detectLoop);
+        return;
+    }
+
     if (videoElement.readyState >= 2) {
         if (!isProcessingFace) { isProcessingFace = true; await faceMesh.send({image: videoElement}); isProcessingFace = false; }
         if (!isProcessingHand) { isProcessingHand = true; await hands.send({image: videoElement}); isProcessingHand = false; }
@@ -280,7 +272,89 @@ async function detectLoop() {
     requestAnimationFrame(detectLoop);
 }
 
-/* --- 8. FETCH & ASSETS --- */
+/* --- 8. MEDIAPIPE FACE (UPDATED FOR COMPOSITING) --- */
+const faceMesh = new FaceMesh({ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}` });
+faceMesh.setOptions({ refineLandmarks: true, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
+faceMesh.onResults((results) => {
+  if (currentType !== 'earrings' && currentType !== 'chains') return;
+  const w = videoElement.videoWidth; const h = videoElement.videoHeight;
+  canvasElement.width = w; canvasElement.height = h;
+  canvasCtx.save(); 
+  
+  // *** KEY FIX: DRAW VIDEO ON CANVAS (For Streaming) ***
+  // We draw the camera feed onto the canvas first. This allows us to stream the Canvas.
+  // Note: We don't mirror here because the FaceMesh coordinates align with the raw video.
+  // CSS handles the mirroring for the local user.
+  canvasCtx.drawImage(videoElement, 0, 0, w, h); 
+
+  // Mirror Context if User Camera (so AR aligns with CSS-mirrored video for local user)
+  // But wait, for streaming we want "True" image.
+  // Let's keep it simple: Draw AR on top of unmirrored video.
+  // Local User sees: Mirrored Video Element (via CSS) + Mirrored Canvas (via CSS).
+  // Remote User sees: Unmirrored Stream.
+  
+  if (currentCameraMode === 'environment') { canvasCtx.translate(0, 0); canvasCtx.scale(1, 1); } 
+  else { canvasCtx.translate(w, 0); canvasCtx.scale(-1, 1); } // Mirror Tracking Coordinates
+
+  if (results.multiFaceLandmarks && results.multiFaceLandmarks[0]) {
+    const lm = results.multiFaceLandmarks[0]; 
+    const leftEar = { x: lm[132].x * w, y: lm[132].y * h }; const rightEar = { x: lm[361].x * w, y: lm[361].y * h };
+    const neck = { x: lm[152].x * w, y: lm[152].y * h }; const nose = { x: lm[1].x * w, y: lm[1].y * h };
+    const headTilt = Math.atan2(rightEar.y - leftEar.y, rightEar.x - leftEar.x);
+    updatePhysics(headTilt, lm[1].x, w);
+    const earDist = Math.hypot(rightEar.x - leftEar.x, rightEar.y - leftEar.y);
+    const distToLeft = Math.hypot(nose.x - leftEar.x, nose.y - leftEar.y);
+    const distToRight = Math.hypot(nose.x - rightEar.x, nose.y - rightEar.y);
+    const ratio = distToLeft / (distToLeft + distToRight);
+    const showLeft = ratio > 0.25; const showRight = ratio < 0.75; 
+    if (earringImg && earringImg.complete) {
+      let ew = earDist * 0.25; let eh = (earringImg.height/earringImg.width) * ew;
+      const xShift = ew * 0.05; const totalAngle = physics.earringAngle + (physics.swayOffset * 0.5);
+      canvasCtx.shadowColor = "rgba(0,0,0,0.5)"; canvasCtx.shadowBlur = 15; canvasCtx.shadowOffsetX = 2; canvasCtx.shadowOffsetY = 5;
+      if (showLeft) { canvasCtx.save(); canvasCtx.translate(leftEar.x, leftEar.y); canvasCtx.rotate(totalAngle); canvasCtx.drawImage(earringImg, (-ew/2) - xShift, -eh * 0.20, ew, eh); canvasCtx.restore(); }
+      if (showRight) { canvasCtx.save(); canvasCtx.translate(rightEar.x, rightEar.y); canvasCtx.rotate(totalAngle); canvasCtx.drawImage(earringImg, (-ew/2) + xShift, -eh * 0.20, ew, eh); canvasCtx.restore(); }
+      canvasCtx.shadowColor = "transparent";
+    }
+    if (necklaceImg && necklaceImg.complete) { const nw = earDist * 0.85; const nh = (necklaceImg.height/necklaceImg.width) * nw; canvasCtx.drawImage(necklaceImg, neck.x - nw/2, neck.y + (nw*0.1), nw, nh); }
+  }
+  canvasCtx.restore();
+});
+
+/* --- 9. MEDIAPIPE HANDS (UPDATED FOR COMPOSITING) --- */
+const hands = new Hands({ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}` });
+hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
+function calculateAngle(p1, p2) { return Math.atan2(p2.y - p1.y, p2.x - p1.x); }
+hands.onResults((results) => {
+  const w = videoElement.videoWidth; const h = videoElement.videoHeight;
+  if (currentType !== 'rings' && currentType !== 'bangles') return;
+  canvasElement.width = w; canvasElement.height = h;
+  canvasCtx.save(); 
+  
+  // Draw Video Background
+  canvasCtx.drawImage(videoElement, 0, 0, w, h); 
+  
+  if (currentCameraMode === 'environment') { canvasCtx.translate(0, 0); canvasCtx.scale(1, 1); } 
+  else { canvasCtx.translate(w, 0); canvasCtx.scale(-1, 1); }
+
+  if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+      const lm = results.multiHandLandmarks[0];
+      const mcp = { x: lm[13].x * w, y: lm[13].y * h }; const pip = { x: lm[14].x * w, y: lm[14].y * h };
+      const targetRingAngle = calculateAngle(mcp, pip) - (Math.PI / 2);
+      const targetRingWidth = Math.hypot(pip.x - mcp.x, pip.y - mcp.y) * 0.6; 
+      const wrist = { x: lm[0].x * w, y: lm[0].y * h }; 
+      const targetArmAngle = calculateAngle(wrist, { x: lm[9].x * w, y: lm[9].y * h }) - (Math.PI / 2);
+      const targetBangleWidth = Math.hypot((lm[17].x*w)-(lm[5].x*w), (lm[17].y*h)-(lm[5].y*h)) * 1.25; 
+      if (!handSmoother.active) { handSmoother.ring = { x: mcp.x, y: mcp.y, angle: targetRingAngle, size: targetRingWidth }; handSmoother.bangle = { x: wrist.x, y: wrist.y, angle: targetArmAngle, size: targetBangleWidth }; handSmoother.active = true; } 
+      else { handSmoother.ring.x = lerp(handSmoother.ring.x, mcp.x, SMOOTH_FACTOR); handSmoother.ring.y = lerp(handSmoother.ring.y, mcp.y, SMOOTH_FACTOR); handSmoother.ring.angle = lerp(handSmoother.ring.angle, targetRingAngle, SMOOTH_FACTOR); handSmoother.ring.size = lerp(handSmoother.ring.size, targetRingWidth, SMOOTH_FACTOR); handSmoother.bangle.x = lerp(handSmoother.bangle.x, wrist.x, SMOOTH_FACTOR); handSmoother.bangle.y = lerp(handSmoother.bangle.y, wrist.y, SMOOTH_FACTOR); handSmoother.bangle.angle = lerp(handSmoother.bangle.angle, targetArmAngle, SMOOTH_FACTOR); handSmoother.bangle.size = lerp(handSmoother.bangle.size, targetBangleWidth, SMOOTH_FACTOR); }
+      canvasCtx.shadowColor = "rgba(0,0,0,0.4)"; canvasCtx.shadowBlur = 10; canvasCtx.shadowOffsetY = 5;
+      if (ringImg && ringImg.complete) { const rHeight = (ringImg.height / ringImg.width) * handSmoother.ring.size; canvasCtx.save(); canvasCtx.translate(handSmoother.ring.x, handSmoother.ring.y); canvasCtx.rotate(handSmoother.ring.angle); canvasCtx.drawImage(ringImg, -handSmoother.ring.size/2, (handSmoother.ring.size/0.6)*0.15, handSmoother.ring.size, rHeight); canvasCtx.restore(); }
+      if (bangleImg && bangleImg.complete) { const bHeight = (bangleImg.height / bangleImg.width) * handSmoother.bangle.size; canvasCtx.save(); canvasCtx.translate(handSmoother.bangle.x, handSmoother.bangle.y); canvasCtx.rotate(handSmoother.bangle.angle); canvasCtx.drawImage(bangleImg, -handSmoother.bangle.size/2, -bHeight/2, handSmoother.bangle.size, bHeight); canvasCtx.restore(); }
+      canvasCtx.shadowColor = "transparent";
+  }
+  canvasCtx.restore();
+});
+
+/* --- 10. EXPORTS & HELPERS --- */
 function initBackgroundFetch() { Object.keys(DRIVE_FOLDERS).forEach(key => { fetchCategoryData(key); }); }
 function fetchCategoryData(category) {
     if (CATALOG_PROMISES[category]) return CATALOG_PROMISES[category];
@@ -307,73 +381,6 @@ function fetchCategoryData(category) {
 }
 function loadAsset(src, id) { return new Promise((resolve) => { if (!src) { resolve(null); return; } if (IMAGE_CACHE[id]) { resolve(IMAGE_CACHE[id]); return; } const img = new Image(); img.crossOrigin = 'anonymous'; img.onload = () => { IMAGE_CACHE[id] = img; resolve(img); }; img.onerror = () => { resolve(null); }; img.src = src; }); }
 function setActiveARImage(img) { if (currentType === 'earrings') earringImg = img; else if (currentType === 'chains') necklaceImg = img; else if (currentType === 'rings') ringImg = img; else if (currentType === 'bangles') bangleImg = img; }
-
-function updatePhysics(headTilt, headX, width) { const gravityTarget = -headTilt; physics.earringVelocity += (gravityTarget - physics.earringAngle) * 0.1; physics.earringVelocity *= 0.92; physics.earringAngle += physics.earringVelocity; const headSpeed = (headX - physics.lastHeadX); physics.lastHeadX = headX; physics.swayOffset += headSpeed * -1.5; physics.swayOffset *= 0.85; if (physics.swayOffset > 0.5) physics.swayOffset = 0.5; if (physics.swayOffset < -0.5) physics.swayOffset = -0.5; }
-const faceMesh = new FaceMesh({ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}` });
-faceMesh.setOptions({ refineLandmarks: true, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
-faceMesh.onResults((results) => {
-  if (currentType !== 'earrings' && currentType !== 'chains') return;
-  const w = videoElement.videoWidth; const h = videoElement.videoHeight;
-  canvasElement.width = w; canvasElement.height = h;
-  canvasCtx.save(); canvasCtx.clearRect(0, 0, w, h);
-  
-  // *** RENDER LOGIC UPDATE: Handle Zoom Class ***
-  // If remote view, do NOT mirror. If local user, DO mirror.
-  if (currentCameraMode === 'environment' || (coShop.active && !coShop.isHost)) { 
-      canvasCtx.translate(0, 0); canvasCtx.scale(1, 1); 
-  } else { 
-      canvasCtx.translate(w, 0); canvasCtx.scale(-1, 1); 
-  }
-
-  if (results.multiFaceLandmarks && results.multiFaceLandmarks[0]) {
-    const lm = results.multiFaceLandmarks[0]; 
-    const leftEar = { x: lm[132].x * w, y: lm[132].y * h }; const rightEar = { x: lm[361].x * w, y: lm[361].y * h };
-    const neck = { x: lm[152].x * w, y: lm[152].y * h }; const nose = { x: lm[1].x * w, y: lm[1].y * h };
-    const headTilt = Math.atan2(rightEar.y - leftEar.y, rightEar.x - leftEar.x);
-    updatePhysics(headTilt, lm[1].x, w);
-    const earDist = Math.hypot(rightEar.x - leftEar.x, rightEar.y - leftEar.y);
-    const distToLeft = Math.hypot(nose.x - leftEar.x, nose.y - leftEar.y);
-    const distToRight = Math.hypot(nose.x - rightEar.x, nose.y - rightEar.y);
-    const ratio = distToLeft / (distToLeft + distToRight);
-    const showLeft = ratio > 0.25; const showRight = ratio < 0.75; 
-    if (earringImg && earringImg.complete) {
-      let ew = earDist * 0.25; let eh = (earringImg.height/earringImg.width) * ew;
-      const xShift = ew * 0.05; const totalAngle = physics.earringAngle + (physics.swayOffset * 0.5);
-      canvasCtx.shadowColor = "rgba(0,0,0,0.5)"; canvasCtx.shadowBlur = 15; canvasCtx.shadowOffsetX = 2; canvasCtx.shadowOffsetY = 5;
-      if (showLeft) { canvasCtx.save(); canvasCtx.translate(leftEar.x, leftEar.y); canvasCtx.rotate(totalAngle); canvasCtx.drawImage(earringImg, (-ew/2) - xShift, -eh * 0.20, ew, eh); canvasCtx.restore(); }
-      if (showRight) { canvasCtx.save(); canvasCtx.translate(rightEar.x, rightEar.y); canvasCtx.rotate(totalAngle); canvasCtx.drawImage(earringImg, (-ew/2) + xShift, -eh * 0.20, ew, eh); canvasCtx.restore(); }
-      canvasCtx.shadowColor = "transparent";
-    }
-    if (necklaceImg && necklaceImg.complete) { const nw = earDist * 0.85; const nh = (necklaceImg.height/necklaceImg.width) * nw; canvasCtx.drawImage(necklaceImg, neck.x - nw/2, neck.y + (nw*0.1), nw, nh); }
-  }
-  canvasCtx.restore();
-});
-const hands = new Hands({ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}` });
-hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
-function calculateAngle(p1, p2) { return Math.atan2(p2.y - p1.y, p2.x - p1.x); }
-hands.onResults((results) => {
-  const w = videoElement.videoWidth; const h = videoElement.videoHeight;
-  if (currentType !== 'rings' && currentType !== 'bangles') return;
-  canvasElement.width = w; canvasElement.height = h;
-  canvasCtx.save(); canvasCtx.clearRect(0, 0, w, h);
-  if (currentCameraMode === 'environment') { canvasCtx.translate(0, 0); canvasCtx.scale(1, 1); } else { canvasCtx.translate(w, 0); canvasCtx.scale(-1, 1); }
-  if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
-      const lm = results.multiHandLandmarks[0];
-      const mcp = { x: lm[13].x * w, y: lm[13].y * h }; const pip = { x: lm[14].x * w, y: lm[14].y * h };
-      const targetRingAngle = calculateAngle(mcp, pip) - (Math.PI / 2);
-      const targetRingWidth = Math.hypot(pip.x - mcp.x, pip.y - mcp.y) * 0.6; 
-      const wrist = { x: lm[0].x * w, y: lm[0].y * h }; 
-      const targetArmAngle = calculateAngle(wrist, { x: lm[9].x * w, y: lm[9].y * h }) - (Math.PI / 2);
-      const targetBangleWidth = Math.hypot((lm[17].x*w)-(lm[5].x*w), (lm[17].y*h)-(lm[5].y*h)) * 1.25; 
-      if (!handSmoother.active) { handSmoother.ring = { x: mcp.x, y: mcp.y, angle: targetRingAngle, size: targetRingWidth }; handSmoother.bangle = { x: wrist.x, y: wrist.y, angle: targetArmAngle, size: targetBangleWidth }; handSmoother.active = true; } 
-      else { handSmoother.ring.x = lerp(handSmoother.ring.x, mcp.x, SMOOTH_FACTOR); handSmoother.ring.y = lerp(handSmoother.ring.y, mcp.y, SMOOTH_FACTOR); handSmoother.ring.angle = lerp(handSmoother.ring.angle, targetRingAngle, SMOOTH_FACTOR); handSmoother.ring.size = lerp(handSmoother.ring.size, targetRingWidth, SMOOTH_FACTOR); handSmoother.bangle.x = lerp(handSmoother.bangle.x, wrist.x, SMOOTH_FACTOR); handSmoother.bangle.y = lerp(handSmoother.bangle.y, wrist.y, SMOOTH_FACTOR); handSmoother.bangle.angle = lerp(handSmoother.bangle.angle, targetArmAngle, SMOOTH_FACTOR); handSmoother.bangle.size = lerp(handSmoother.bangle.size, targetBangleWidth, SMOOTH_FACTOR); }
-      canvasCtx.shadowColor = "rgba(0,0,0,0.4)"; canvasCtx.shadowBlur = 10; canvasCtx.shadowOffsetY = 5;
-      if (ringImg && ringImg.complete) { const rHeight = (ringImg.height / ringImg.width) * handSmoother.ring.size; canvasCtx.save(); canvasCtx.translate(handSmoother.ring.x, handSmoother.ring.y); canvasCtx.rotate(handSmoother.ring.angle); canvasCtx.drawImage(ringImg, -handSmoother.ring.size/2, (handSmoother.ring.size/0.6)*0.15, handSmoother.ring.size, rHeight); canvasCtx.restore(); }
-      if (bangleImg && bangleImg.complete) { const bHeight = (bangleImg.height / bangleImg.width) * handSmoother.bangle.size; canvasCtx.save(); canvasCtx.translate(handSmoother.bangle.x, handSmoother.bangle.y); canvasCtx.rotate(handSmoother.bangle.angle); canvasCtx.drawImage(bangleImg, -handSmoother.bangle.size/2, -bHeight/2, handSmoother.bangle.size, bHeight); canvasCtx.restore(); }
-      canvasCtx.shadowColor = "transparent";
-  }
-  canvasCtx.restore();
-});
 
 window.toggleCoShop = toggleCoShop; window.closeCoShopModal = closeCoShopModal; window.copyInviteLink = copyInviteLink; window.sendVote = (val) => coShop.sendVote(val); window.handleSmartClick = handleSmartClick; window.takeSnapshot = takeSnapshot; window.downloadSingleSnapshot = downloadSingleSnapshot; window.shareSingleSnapshot = shareSingleSnapshot; window.toggleTryAll = toggleTryAll; window.changeLightboxImage = changeLightboxImage; window.closePreview = closePreview; window.closeGallery = closeGallery; window.closeLightbox = closeLightbox; window.tryDailyItem = tryDailyItem; window.closeDailyDrop = closeDailyDrop; window.downloadAllAsZip = downloadAllAsZip;
 
