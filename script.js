@@ -1,4 +1,4 @@
-/* script.js - Jewels-Ai Atelier: v5.0 (Co-Shopping Enabled) */
+/* script.js - Jewels-Ai Atelier: v5.1 (Group Party Mode) */
 
 /* --- CONFIGURATION --- */
 const API_KEY = "AIzaSyAXG3iG2oQjUA_BpnO8dK8y-MHJ7HLrhyE"; 
@@ -60,86 +60,105 @@ let handSmoother = {
     bangle: { x: 0, y: 0, angle: 0, size: 0 }
 };
 
-/* --- CO-SHOPPING (MULTIPLAYER) ENGINE --- */
+/* --- CO-SHOPPING ENGINE (GROUP PARTY VERSION) --- */
 const coShop = {
     peer: null,
-    conn: null,
+    conns: [], // Stores connections to ALL friends
     myId: null,
     active: false,
-    isHost: false,
-
+    
     init: function() {
-        // Create Peer with random ID
+        // Initialize PeerJS
         this.peer = new Peer(null, { debug: 2 });
         
+        // When I get my ID
         this.peer.on('open', (id) => {
             this.myId = id;
             console.log("My Peer ID: " + id);
             this.checkForInvite();
         });
 
+        // When a friend joins ME
         this.peer.on('connection', (c) => {
             this.handleConnection(c);
-            showToast("Friend Joined!");
+            showToast("New Friend Joined!");
             this.activateUI();
         });
 
-        this.peer.on('error', (err) => console.error(err));
+        this.peer.on('error', (err) => console.error("PeerJS Error:", err));
     },
 
     checkForInvite: function() {
-        // Check URL for ?room=ID
         const urlParams = new URLSearchParams(window.location.search);
         const roomId = urlParams.get('room');
         if (roomId) {
-            console.log("Joining Room: " + roomId);
+            console.log("Joining Party: " + roomId);
             this.connectToHost(roomId);
-        } else {
-            this.isHost = true;
         }
     },
 
+    // Guests connect to the Host
     connectToHost: function(hostId) {
-        this.conn = this.peer.connect(hostId);
-        this.conn.on('open', () => {
-            showToast("Connected to Host!");
-            this.activateUI();
-            this.setupDataListener();
-        });
+        let conn = this.peer.connect(hostId);
+        this.handleConnection(conn);
     },
 
     handleConnection: function(c) {
-        this.conn = c;
-        this.setupDataListener();
+        c.on('open', () => {
+            // Add this new friend to our list
+            this.conns.push(c); 
+            console.log("Connected to: " + c.peer);
+            
+            this.activateUI();
+            
+            // Listen for data from this specific friend
+            c.on('data', (data) => this.handleData(data, c));
+            
+            // If they leave, remove them from the list
+            c.on('close', () => {
+                this.conns = this.conns.filter(p => p !== c);
+                showToast("Friend Left");
+            });
+        });
     },
 
-    setupDataListener: function() {
-        this.conn.on('data', (data) => {
-            console.log("Received:", data);
-            if (data.type === 'SYNC_ITEM') {
-                // Apply the item locally WITHOUT sending it back (prevent loop)
-                selectJewelryType(data.cat).then(() => {
-                    applyAssetInstantly(JEWELRY_ASSETS[data.cat][data.idx], data.idx, false);
-                });
-            } else if (data.type === 'VOTE') {
-                showReaction(data.val);
+    handleData: function(data, senderConn) {
+        console.log("Received:", data);
+        
+        if (data.type === 'SYNC_ITEM') {
+            // 1. Update MY screen locally (without broadcasting back)
+            selectJewelryType(data.cat).then(() => {
+                applyAssetInstantly(JEWELRY_ASSETS[data.cat][data.idx], data.idx, false);
+            });
+            
+            // 2. (Relay) If I am the Host, send this update to everyone else!
+            this.broadcast(data, senderConn);
+            
+        } else if (data.type === 'VOTE') {
+            showReaction(data.val);
+            // Relay votes to everyone else too
+            this.broadcast(data, senderConn);
+        }
+    },
+
+    // Send data to EVERYONE connected (except the sender)
+    broadcast: function(data, excludeConn = null) {
+        this.conns.forEach(c => {
+            if (c.open && c !== excludeConn) {
+                c.send(data);
             }
         });
     },
 
+    // When YOU change jewelry, tell everyone
     sendUpdate: function(category, index) {
-        if (this.conn && this.conn.open) {
-            this.conn.send({ type: 'SYNC_ITEM', cat: category, idx: index });
-        }
+        this.broadcast({ type: 'SYNC_ITEM', cat: category, idx: index });
     },
 
+    // When YOU vote, tell everyone
     sendVote: function(val) {
-        if (this.conn && this.conn.open) {
-            this.conn.send({ type: 'VOTE', val: val });
-            showReaction(val); // Show locally too
-        } else {
-            showToast("No one connected!");
-        }
+        this.broadcast({ type: 'VOTE', val: val });
+        showReaction(val); // Show on my screen too
     },
     
     activateUI: function() {
@@ -255,7 +274,7 @@ function setActiveARImage(img) {
 /* --- 5. INITIALIZATION --- */
 window.onload = async () => {
     initBackgroundFetch();
-    coShop.init(); // Initialize Multiplayer
+    coShop.init(); // Initialize Multiplayer Group
     await startCameraFast('user');
     setTimeout(() => { loadingStatus.style.display = 'none'; }, 2000);
     await selectJewelryType('earrings');
@@ -293,7 +312,7 @@ async function applyAssetInstantly(asset, index, shouldBroadcast = true) {
     currentAssetIndex = index; currentAssetName = asset.name; highlightButtonByIndex(index);
     const thumbImg = new Image(); thumbImg.src = asset.thumbSrc; thumbImg.crossOrigin = 'anonymous'; setActiveARImage(thumbImg);
     
-    // Broadcast to friend
+    // Broadcast to ALL friends
     if (shouldBroadcast && coShop.active) {
         coShop.sendUpdate(currentType, index);
     }
@@ -449,7 +468,7 @@ function copyInviteLink() {
     navigator.clipboard.writeText(text).then(() => showToast("Link Copied!"));
 }
 
-// Flash Animation (same)
+// Flash Animation
 function triggerFlash() { if(!flashOverlay) return; flashOverlay.classList.remove('flash-active'); void flashOverlay.offsetWidth; flashOverlay.classList.add('flash-active'); setTimeout(() => { flashOverlay.classList.remove('flash-active'); }, 300); }
 function toggleTryAll() { if (!currentType) { alert("Select category!"); return; } if (autoTryRunning) stopAutoTry(); else startAutoTry(); }
 function startAutoTry() { autoTryRunning = true; autoSnapshots = []; autoTryIndex = 0; document.getElementById('tryall-btn').textContent = "STOP"; runAutoStep(); }
