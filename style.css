@@ -1,4 +1,4 @@
-/* style.css - Jewels-Ai Atelier: v9.1 (Live Party Final) */
+/* style.css - Jewels-Ai Atelier: v10.0 (Final Live Party) */
 
 /* Import Google Fonts */
 @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=Montserrat:wght@400;600&display=swap');
@@ -21,7 +21,34 @@ body {
   -webkit-tap-highlight-color: transparent;
 }
 
-/* --- 2. CAMERA & FLASH LAYERS --- */
+/* --- 2. CAMERA & VIDEO LAYERS --- */
+#video-container { 
+    position: fixed; inset: 0; z-index: 0; background: black; 
+    display: flex; align-items: center; justify-content: center; 
+}
+
+/* Default Local Camera: Fills screen (Mirrored) */
+#webcam { 
+    position: absolute; width: 100%; height: 100%; 
+    object-fit: cover; transform: scaleX(-1); 
+}
+
+/* *** ZOOM FIX: Remote Stream Class (Added via JS) *** */
+/* This ensures the Host's video fits the screen without zooming/cropping */
+video.remote-stream { 
+    object-fit: contain !important; 
+    transform: none !important; 
+    width: 100% !important; 
+    height: 100% !important; 
+}
+
+/* Canvas overlay must match the video positioning */
+#overlay { 
+    position: absolute; width: 100%; height: 100%; 
+    object-fit: contain; z-index: 1; pointer-events: none; 
+}
+
+/* Flash Animation */
 #flash-overlay {
     position: fixed; inset: 0; background: white; z-index: 9999;
     opacity: 0; pointer-events: none; display: none;
@@ -33,11 +60,6 @@ body {
 }
 
 @keyframes flash-animation { 0% { opacity: 0.8; } 100% { opacity: 0; } }
-
-#video-container { position: fixed; inset: 0; z-index: 0; background: black; }
-#webcam { position: absolute; width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
-#overlay { position: absolute; width: 100%; height: 100%; object-fit: cover; z-index: 1; pointer-events: none; }
-#webcam.no-mirror { transform: none !important; }
 
 #loading-status {
     position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);

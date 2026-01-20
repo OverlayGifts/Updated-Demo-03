@@ -1,4 +1,4 @@
-/* script.js - Jewels-Ai Atelier: v9.1 (Smart Switch & Live Party) */
+/* script.js - Jewels-Ai Atelier: v10.0 (Smart Button, Zoom Fix & Live Party) */
 
 /* --- 1. CONFIGURATION --- */
 const API_KEY = "AIzaSyAXG3iG2oQjUA_BpnO8dK8y-MHJ7HLrhyE"; 
@@ -51,9 +51,12 @@ const coShop = {
         this.peer.on('call', (call) => {
             call.answer(); 
             call.on('stream', (remoteStream) => {
+                // *** ZOOM FIX: Apply specific class for remote viewing ***
                 videoElement.srcObject = remoteStream;
-                videoElement.classList.remove('no-mirror'); 
+                videoElement.classList.add('remote-stream'); // Forces object-fit: contain
+                videoElement.classList.remove('no-mirror');  // Don't mirror host video
                 videoElement.play();
+                
                 loadingStatus.style.display = 'none';
                 document.getElementById('live-badge').style.display = 'block';
                 showToast("🔴 Watching Host Live");
@@ -71,9 +74,9 @@ const coShop = {
             this.active = true;
             document.getElementById('main-controls').style.display = 'none'; // Hide controls
             document.getElementById('voting-ui').style.display = 'flex';     // Show reactions
-            smartBtn.style.display = 'none';                                 // Hide Invite/End button for Guest
+            smartBtn.style.display = 'none';                                 // Hide Smart Button for Guest
             
-            loadingStatus.innerText = "Waiting for Host Video...";
+            loadingStatus.innerText = "Connecting to Host...";
             loadingStatus.style.display = 'block';
             this.connectToHost(roomId);
         } else {
@@ -104,12 +107,13 @@ const coShop = {
                 showToast("Guest Joined!");
                 updateSmartButton("end"); // Switch icon to X
                 
-                // Call Guest
+                // Call Guest with Video
                 if (videoElement.srcObject) {
                     const call = this.peer.call(c.peer, videoElement.srcObject);
                     this.calls.push(call);
                 }
-                setTimeout(() => this.sendUpdate(currentType, currentAssetIndex), 1000);
+                // Sync Initial State
+                setTimeout(() => this.sendUpdate(currentType, currentAssetIndex), 1500);
             }
 
             c.on('data', (data) => this.handleData(data, c));
@@ -123,7 +127,7 @@ const coShop = {
 
     handleData: function(data, senderConn) {
         if (data.type === 'SYNC_ITEM') {
-            // Guest updates internal state
+            // Guest updates internal state (even if watching video)
             selectJewelryType(data.cat, true).then(() => {
                 applyAssetInstantly(JEWELRY_ASSETS[data.cat][data.idx], data.idx, false);
             });
@@ -134,11 +138,24 @@ const coShop = {
             if (this.isHost) this.broadcast(data, senderConn);
 
         } else if (data.type === 'SESSION_END') {
-            // GUEST: Host Ended Session -> Switch to Try-On
+            // --- GUEST: HOST ENDED SESSION ---
             showToast("✨ Your Turn!");
+            
+            // 1. Cleanup Video Stream
+            if(videoElement.srcObject) {
+                videoElement.srcObject.getTracks().forEach(track => track.stop());
+                videoElement.srcObject = null;
+            }
+            
+            // 2. Remove Zoom Fix (Restore Local Camera Fit)
+            videoElement.classList.remove('remote-stream');
+
+            // 3. Reset UI
             document.getElementById('live-badge').style.display = 'none';
-            document.getElementById('main-controls').style.display = 'flex'; // Show controls
+            document.getElementById('main-controls').style.display = 'flex'; 
             document.getElementById('voting-ui').style.display = 'none';
+            
+            // 4. Start Local Camera
             this.active = false; 
             startCameraFast('user'); 
         }
@@ -162,7 +179,7 @@ const coShop = {
     }
 };
 
-/* --- 4. BUTTON LOGIC --- */
+/* --- 4. SMART BUTTON LOGIC --- */
 function handleSmartClick() {
     if (coShop.isHost && coShop.conns.length > 0) {
         // If guests are connected -> END SESSION
@@ -191,14 +208,18 @@ window.onload = async () => {
     coShop.init(); 
 };
 
-/* --- 6. CORE LOGIC --- */
+/* --- 6. CORE APP LOGIC --- */
 async function selectJewelryType(type, fromSync = false) {
   if (coShop.active && !coShop.isHost && !fromSync) return; 
   if (currentType === type) return;
   currentType = type;
   const targetMode = (type === 'rings' || type === 'bangles') ? 'environment' : 'user';
+  
+  // Only restart local camera if we are NOT watching a remote stream
   if (!coShop.active || coShop.isHost) {
-      if(videoElement.srcObject) await startCameraFast(targetMode); 
+      if(videoElement.srcObject && !videoElement.classList.contains('remote-stream')) {
+          await startCameraFast(targetMode); 
+      }
   }
 
   earringImg = null; necklaceImg = null; ringImg = null; bangleImg = null;
@@ -235,8 +256,11 @@ function highlightButtonByIndex(index) {
     }
 }
 
-/* --- 7. CAMERA & AI --- */
+/* --- 7. CAMERA & AI LOOP --- */
 async function startCameraFast(mode = 'user') {
+    // Safety check: Don't override remote stream unless explicitly stopped
+    if (videoElement.classList.contains('remote-stream') && coShop.active && !coShop.isHost) return;
+
     if (videoElement.srcObject && currentCameraMode === mode && videoElement.readyState >= 2) return;
     currentCameraMode = mode;
     if (videoElement.srcObject) { videoElement.srcObject.getTracks().forEach(track => track.stop()); }
@@ -292,7 +316,15 @@ faceMesh.onResults((results) => {
   const w = videoElement.videoWidth; const h = videoElement.videoHeight;
   canvasElement.width = w; canvasElement.height = h;
   canvasCtx.save(); canvasCtx.clearRect(0, 0, w, h);
-  if (currentCameraMode === 'environment' || (coShop.active && !coShop.isHost)) { canvasCtx.translate(0, 0); canvasCtx.scale(1, 1); } else { canvasCtx.translate(w, 0); canvasCtx.scale(-1, 1); }
+  
+  // *** RENDER LOGIC UPDATE: Handle Zoom Class ***
+  // If remote view, do NOT mirror. If local user, DO mirror.
+  if (currentCameraMode === 'environment' || (coShop.active && !coShop.isHost)) { 
+      canvasCtx.translate(0, 0); canvasCtx.scale(1, 1); 
+  } else { 
+      canvasCtx.translate(w, 0); canvasCtx.scale(-1, 1); 
+  }
+
   if (results.multiFaceLandmarks && results.multiFaceLandmarks[0]) {
     const lm = results.multiFaceLandmarks[0]; 
     const leftEar = { x: lm[132].x * w, y: lm[132].y * h }; const rightEar = { x: lm[361].x * w, y: lm[361].y * h };
