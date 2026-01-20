@@ -1,4 +1,4 @@
-/* style.css - Jewels-Ai Atelier: Final Version */
+/* style.css - Jewels-Ai Atelier: Clean Single User */
 
 /* Import Google Fonts */
 @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=Montserrat:wght@400;600&display=swap');
@@ -21,34 +21,7 @@ body {
   -webkit-tap-highlight-color: transparent;
 }
 
-/* --- 2. CAMERA & VIDEO LAYERS --- */
-#video-container { 
-    position: fixed; inset: 0; z-index: 0; background: black; 
-    display: flex; align-items: center; justify-content: center; 
-}
-
-/* Default Local Camera: Fills screen (Mirrored) */
-#webcam { 
-    position: absolute; width: 100%; height: 100%; 
-    object-fit: cover; transform: scaleX(-1); 
-}
-
-/* *** ZOOM FIX: Remote Stream Class (Applied by JS) *** */
-/* This ensures the Host's video fits the Guest's screen without zooming/cropping */
-video.remote-stream { 
-    object-fit: contain !important; 
-    transform: none !important; 
-    width: 100% !important; 
-    height: 100% !important; 
-}
-
-/* Canvas overlay must match the video positioning */
-#overlay { 
-    position: absolute; width: 100%; height: 100%; 
-    object-fit: contain; z-index: 1; pointer-events: none; 
-}
-
-/* Flash Animation */
+/* --- 2. CAMERA & FLASH LAYERS --- */
 #flash-overlay {
     position: fixed; inset: 0; background: white; z-index: 9999;
     opacity: 0; pointer-events: none; display: none;
@@ -61,6 +34,11 @@ video.remote-stream {
 
 @keyframes flash-animation { 0% { opacity: 0.8; } 100% { opacity: 0; } }
 
+#video-container { position: fixed; inset: 0; z-index: 0; background: black; }
+#webcam { position: absolute; width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
+#overlay { position: absolute; width: 100%; height: 100%; object-fit: cover; z-index: 1; pointer-events: none; }
+#webcam.no-mirror { transform: none !important; }
+
 #loading-status {
     position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
     background: rgba(0,0,0,0.85); color: var(--accent); padding: 20px 40px;
@@ -68,7 +46,7 @@ video.remote-stream {
     font-family: 'Playfair Display'; font-size: 18px; z-index: 500; backdrop-filter: blur(5px);
 }
 
-/* --- 3. TOP CONTROLS (Brand & Actions) --- */
+/* --- 3. TOP CONTROLS --- */
 #controls-hero {
   position: fixed; top: 0; left: 0; right: 0; padding: 20px;
   background: linear-gradient(to bottom, rgba(0,0,0,0.9), transparent);
@@ -79,16 +57,15 @@ video.remote-stream {
 .brand-logo { height: 40px; }
 .action-row { display: flex; gap: 15px; align-items: center; }
 
-/* Buttons: Camera & Smart Button */
-#snapshot-btn, #smart-btn {
+#snapshot-btn {
   background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3);
   padding: 0; border-radius: 50%; cursor: pointer; color: white; font-size: 20px; transition: all 0.2s;
   width: 44px; height: 44px; display: flex; align-items: center; justify-content: center;
 }
 
-#snapshot-btn:active, #smart-btn:active { transform: scale(0.9); background: rgba(255,255,255,0.3); }
+#snapshot-btn:active { transform: scale(0.9); background: rgba(255,255,255,0.3); }
 
-/* --- 4. BOTTOM CONTROLS (Carousel & Pills) --- */
+/* --- 4. BOTTOM CONTROLS --- */
 .controls-panel {
   position: fixed; bottom: 20px; width: 100%; 
   display: flex; flex-direction: column; align-items: center; z-index: 15;
@@ -109,9 +86,9 @@ video.remote-stream {
 
 .carousel-cards {
   display: flex; gap: 10px; overflow-x: auto; padding: 10px; max-width: 100%;
-  scrollbar-width: none; /* Hide scrollbar Firefox */
+  scrollbar-width: none;
 }
-.carousel-cards::-webkit-scrollbar { display: none; /* Hide scrollbar Chrome */ }
+.carousel-cards::-webkit-scrollbar { display: none; }
 
 .thumb-btn { 
   height: 60px; width: 60px; object-fit: contain; background: rgba(0,0,0,0.6);
@@ -121,35 +98,8 @@ video.remote-stream {
 
 .thumb-btn:active { transform: scale(0.95); border-color: var(--accent); }
 
-/* --- 5. VOTING UI (Guests Only) --- */
-.voting-panel {
-    position: fixed; bottom: 130px; left: 50%; transform: translateX(-50%);
-    display: flex; gap: 20px; z-index: 20;
-}
-
-.vote-btn {
-    background: rgba(0,0,0,0.8); border: 2px solid var(--accent);
-    color: var(--accent); padding: 10px 20px; border-radius: 30px;
-    font-weight: bold; cursor: pointer; transition: all 0.2s;
-}
-
-.vote-btn:active { transform: scale(0.9); background: var(--accent); color: black; }
-
-/* Floating Reactions */
-#reaction-container { position: fixed; inset: 0; pointer-events: none; z-index: 9999; overflow: hidden; }
-.floating-reaction {
-    position: absolute; bottom: 0; font-size: 50px;
-    animation: floatUp 2s ease-in forwards; opacity: 0;
-}
-
-@keyframes floatUp {
-    0% { transform: translateY(0) scale(0.5); opacity: 0; }
-    20% { opacity: 1; transform: translateY(-100px) scale(1.2); }
-    100% { transform: translateY(-600px) scale(1); opacity: 0; }
-}
-
-/* --- 6. MODALS (Preview, Gallery, Lightbox, CoShop) --- */
-#preview-modal, #gallery-modal, #lightbox-overlay, #coshop-modal, #daily-drop-modal {
+/* --- 5. MODALS --- */
+#preview-modal, #gallery-modal, #lightbox-overlay {
     position: fixed; inset: 0; background: rgba(0,0,0,0.95); z-index: 2000;
     display: none; flex-direction: column; align-items: center; justify-content: center; backdrop-filter: blur(8px);
 }
@@ -158,7 +108,6 @@ video.remote-stream {
 #preview-image, #lightbox-image { max-width: 100%; max-height: 70vh; border: 2px solid var(--accent); border-radius: 12px; box-shadow: 0 0 30px rgba(0,0,0,0.5); }
 .preview-actions { margin-top: 20px; display: flex; gap: 15px; }
 
-/* Lightbox Arrows */
 .lightbox-nav {
     position: absolute; top: 50%; transform: translateY(-50%); font-size: 50px; color: rgba(255,255,255,0.6); 
     cursor: pointer; padding: 20px; user-select: none; z-index: 2002; transition: all 0.3s ease;
@@ -166,7 +115,6 @@ video.remote-stream {
 .lightbox-nav:hover { color: var(--accent); transform: translateY(-50%) scale(1.2); }
 .prev { left: 10px; } .next { right: 10px; }
 
-/* Gallery Layout */
 .gallery-content {
     background: rgba(18, 18, 18, 0.95); width: 90%; max-width: 900px; height: 80vh; padding: 30px;
     border-radius: 20px; border: 1px solid rgba(212, 175, 55, 0.3); box-shadow: 0 20px 60px rgba(0,0,0,0.8);
@@ -201,11 +149,10 @@ video.remote-stream {
 .gallery-card:hover .gallery-overlay { opacity: 1; transform: translateY(0); }
 .overlay-text { font-size: 14px; color: #fff; font-weight: 600; text-transform: uppercase; }
 
-/* Close Buttons */
 .close-preview, .close-gallery, .close-lightbox { position: absolute; top: 15px; right: 20px; font-size: 30px; color: #888; cursor: pointer; z-index: 2001; }
 .close-preview:hover, .close-gallery:hover, .close-lightbox:hover { color: var(--accent); }
 
-/* --- 7. PROCESSING SPINNER --- */
+/* --- 6. PROCESSING SPINNER --- */
 #process-overlay {
     position: fixed; inset: 0; background: rgba(0,0,0,0.95); z-index: 4000;
     display: none; align-items: center; justify-content: center;

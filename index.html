@@ -3,11 +3,9 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>JEWELS-AI | Live Party</title>
+  <title>JEWELS-AI | Virtual Try-On</title>
   
   <link rel="stylesheet" href="style.css" />
-
-  <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
 
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
@@ -45,8 +43,6 @@
     
     <div id="flash-overlay"></div>
 
-    <div id="live-badge" style="display:none; position:fixed; top:20px; left:50%; transform:translateX(-50%); background:red; color:white; padding:5px 15px; border-radius:4px; font-weight:bold; font-size:12px; z-index:500;">🔴 WATCHING HOST</div>
-
     <div id="video-container">
       <video id="webcam" autoplay playsinline muted></video>
       <canvas id="overlay"></canvas>
@@ -60,8 +56,6 @@
           <img src="logo.png" alt="Jewels-ai Logo" class="brand-logo" />
         </div>
         <div class="action-row">
-          <button id="smart-btn" onclick="handleSmartClick()" title="Invite / End">👥</button>
-          
           <button id="snapshot-btn" onclick="takeSnapshot()" title="Take Photo">📷</button>
         </div>
       </div>
@@ -77,23 +71,6 @@
         <div id="jewelry-options" class="carousel-cards" style="display:none;"></div>
       </div>
     </header>
-
-    <div id="voting-ui" class="voting-panel" style="display:none;">
-        <button onclick="sendVote('love')" class="vote-btn">❤️ Love</button>
-        <button onclick="sendVote('nope')" class="vote-btn">👎 Next</button>
-    </div>
-    
-    <div id="reaction-container"></div>
-
-    <div id="coshop-modal" class="modal-overlay">
-        <div class="modal-box">
-            <h3 style="color:#d4af37; font-family:'Playfair Display';">Invite a Guest</h3>
-            <p style="color:#ccc; font-size:13px;">They will watch you LIVE first!</p>
-            <div id="invite-link-box" style="background:#333; padding:10px; color:#fff; font-size:12px; word-break:break-all; margin:10px 0; border:1px dashed #666;">Generating...</div>
-            <button class="pill accent" onclick="copyInviteLink()">Copy Link</button>
-            <button class="btn-text" onclick="closeCoShopModal()" style="margin-top:10px; background:none; border:none; color:#888; text-decoration:underline; cursor:pointer;">Close</button>
-        </div>
-    </div>
 
     <div id="preview-modal">
         <span class="close-preview" onclick="closePreview()">&times;</span>
