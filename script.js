@@ -1,4 +1,4 @@
-/* script.js - Jewels-Ai Atelier: Clean Single User Version */
+/* script.js - Jewels-Ai Atelier: v12.0 (Hand Skeleton Fix) */
 
 /* --- 1. CONFIGURATION --- */
 const API_KEY = "AIzaSyAXG3iG2oQjUA_BpnO8dK8y-MHJ7HLrhyE"; 
@@ -49,7 +49,17 @@ window.onload = async () => {
 async function selectJewelryType(type) {
   if (currentType === type) return;
   currentType = type;
+  
+  // NOTE: Rings/Bangles prefer 'environment' (back camera), but will work on front if not available
   const targetMode = (type === 'rings' || type === 'bangles') ? 'environment' : 'user';
+  
+  // Show message if switching to hands
+  if (targetMode === 'environment') {
+      showToast("🖐️ Hand Mode Active");
+  } else {
+      showToast("👤 Face Mode Active");
+  }
+
   await startCameraFast(targetMode); 
 
   earringImg = null; necklaceImg = null; ringImg = null; bangleImg = null;
@@ -89,7 +99,11 @@ async function startCameraFast(mode = 'user') {
     if (videoElement.srcObject && currentCameraMode === mode && videoElement.readyState >= 2) return;
     currentCameraMode = mode;
     if (videoElement.srcObject) { videoElement.srcObject.getTracks().forEach(track => track.stop()); }
-    if (mode === 'environment') { videoElement.classList.add('no-mirror'); } else { videoElement.classList.remove('no-mirror'); }
+    
+    // CSS Mirroring Logic
+    if (mode === 'environment') { videoElement.classList.add('no-mirror'); } 
+    else { videoElement.classList.remove('no-mirror'); }
+    
     try {
         const stream = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: mode } });
         videoElement.srcObject = stream;
@@ -99,13 +113,107 @@ async function startCameraFast(mode = 'user') {
 
 async function detectLoop() {
     if (videoElement.readyState >= 2) {
-        if (!isProcessingFace) { isProcessingFace = true; await faceMesh.send({image: videoElement}); isProcessingFace = false; }
-        if (!isProcessingHand) { isProcessingHand = true; await hands.send({image: videoElement}); isProcessingHand = false; }
+        // Run Hand or Face depending on selection
+        if ((currentType === 'rings' || currentType === 'bangles') && !isProcessingHand) {
+             isProcessingHand = true; await hands.send({image: videoElement}); isProcessingHand = false; 
+        } else if ((currentType === 'earrings' || currentType === 'chains') && !isProcessingFace) {
+             isProcessingFace = true; await faceMesh.send({image: videoElement}); isProcessingFace = false; 
+        }
     }
     requestAnimationFrame(detectLoop);
 }
 
-/* --- 7. ASSET HELPERS --- */
+/* --- 7. MEDIAPIPE FACE --- */
+function updatePhysics(headTilt, headX, width) { const gravityTarget = -headTilt; physics.earringVelocity += (gravityTarget - physics.earringAngle) * 0.1; physics.earringVelocity *= 0.92; physics.earringAngle += physics.earringVelocity; const headSpeed = (headX - physics.lastHeadX); physics.lastHeadX = headX; physics.swayOffset += headSpeed * -1.5; physics.swayOffset *= 0.85; if (physics.swayOffset > 0.5) physics.swayOffset = 0.5; if (physics.swayOffset < -0.5) physics.swayOffset = -0.5; }
+const faceMesh = new FaceMesh({ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}` });
+faceMesh.setOptions({ refineLandmarks: true, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
+faceMesh.onResults((results) => {
+  if (currentType !== 'earrings' && currentType !== 'chains') return;
+  const w = videoElement.videoWidth; const h = videoElement.videoHeight;
+  canvasElement.width = w; canvasElement.height = h;
+  canvasCtx.save(); canvasCtx.clearRect(0, 0, w, h);
+  if (currentCameraMode === 'environment') { canvasCtx.translate(0, 0); canvasCtx.scale(1, 1); } else { canvasCtx.translate(w, 0); canvasCtx.scale(-1, 1); }
+  if (results.multiFaceLandmarks && results.multiFaceLandmarks[0]) {
+    const lm = results.multiFaceLandmarks[0]; 
+    const leftEar = { x: lm[132].x * w, y: lm[132].y * h }; const rightEar = { x: lm[361].x * w, y: lm[361].y * h };
+    const neck = { x: lm[152].x * w, y: lm[152].y * h }; const nose = { x: lm[1].x * w, y: lm[1].y * h };
+    const headTilt = Math.atan2(rightEar.y - leftEar.y, rightEar.x - leftEar.x);
+    updatePhysics(headTilt, lm[1].x, w);
+    const earDist = Math.hypot(rightEar.x - leftEar.x, rightEar.y - leftEar.y);
+    const distToLeft = Math.hypot(nose.x - leftEar.x, nose.y - leftEar.y);
+    const distToRight = Math.hypot(nose.x - rightEar.x, nose.y - rightEar.y);
+    const ratio = distToLeft / (distToLeft + distToRight);
+    const showLeft = ratio > 0.25; const showRight = ratio < 0.75; 
+    if (earringImg && earringImg.complete) {
+      let ew = earDist * 0.25; let eh = (earringImg.height/earringImg.width) * ew;
+      const xShift = ew * 0.05; const totalAngle = physics.earringAngle + (physics.swayOffset * 0.5);
+      canvasCtx.shadowColor = "rgba(0,0,0,0.5)"; canvasCtx.shadowBlur = 15; canvasCtx.shadowOffsetX = 2; canvasCtx.shadowOffsetY = 5;
+      if (showLeft) { canvasCtx.save(); canvasCtx.translate(leftEar.x, leftEar.y); canvasCtx.rotate(totalAngle); canvasCtx.drawImage(earringImg, (-ew/2) - xShift, -eh * 0.20, ew, eh); canvasCtx.restore(); }
+      if (showRight) { canvasCtx.save(); canvasCtx.translate(rightEar.x, rightEar.y); canvasCtx.rotate(totalAngle); canvasCtx.drawImage(earringImg, (-ew/2) + xShift, -eh * 0.20, ew, eh); canvasCtx.restore(); }
+      canvasCtx.shadowColor = "transparent";
+    }
+    if (necklaceImg && necklaceImg.complete) { const nw = earDist * 0.85; const nh = (necklaceImg.height/necklaceImg.width) * nw; canvasCtx.drawImage(necklaceImg, neck.x - nw/2, neck.y + (nw*0.1), nw, nh); }
+  }
+  canvasCtx.restore();
+});
+
+/* --- 8. MEDIAPIPE HANDS (UPDATED) --- */
+const hands = new Hands({ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}` });
+hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
+function calculateAngle(p1, p2) { return Math.atan2(p2.y - p1.y, p2.x - p1.x); }
+
+hands.onResults((results) => {
+  const w = videoElement.videoWidth; const h = videoElement.videoHeight;
+  if (currentType !== 'rings' && currentType !== 'bangles') return;
+  
+  canvasElement.width = w; canvasElement.height = h;
+  canvasCtx.save(); canvasCtx.clearRect(0, 0, w, h);
+  
+  // Coordinate Transform (Mirror if front camera)
+  if (currentCameraMode === 'environment') { canvasCtx.translate(0, 0); canvasCtx.scale(1, 1); } 
+  else { canvasCtx.translate(w, 0); canvasCtx.scale(-1, 1); }
+
+  if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+      const lm = results.multiHandLandmarks[0];
+      
+      // *** NEW: DEBUG SKELETON (Proves tracking is working) ***
+      if (window.drawConnectors) {
+          canvasCtx.lineWidth = 2;
+          drawConnectors(canvasCtx, lm, HAND_CONNECTIONS, {color: 'rgba(255, 255, 255, 0.3)'});
+      }
+
+      const mcp = { x: lm[13].x * w, y: lm[13].y * h }; const pip = { x: lm[14].x * w, y: lm[14].y * h };
+      const targetRingAngle = calculateAngle(mcp, pip) - (Math.PI / 2);
+      const targetRingWidth = Math.hypot(pip.x - mcp.x, pip.y - mcp.y) * 0.6; 
+      
+      const wrist = { x: lm[0].x * w, y: lm[0].y * h }; 
+      const targetArmAngle = calculateAngle(wrist, { x: lm[9].x * w, y: lm[9].y * h }) - (Math.PI / 2);
+      const targetBangleWidth = Math.hypot((lm[17].x*w)-(lm[5].x*w), (lm[17].y*h)-(lm[5].y*h)) * 1.25; 
+      
+      if (!handSmoother.active) { handSmoother.ring = { x: mcp.x, y: mcp.y, angle: targetRingAngle, size: targetRingWidth }; handSmoother.bangle = { x: wrist.x, y: wrist.y, angle: targetArmAngle, size: targetBangleWidth }; handSmoother.active = true; } 
+      else { handSmoother.ring.x = lerp(handSmoother.ring.x, mcp.x, SMOOTH_FACTOR); handSmoother.ring.y = lerp(handSmoother.ring.y, mcp.y, SMOOTH_FACTOR); handSmoother.ring.angle = lerp(handSmoother.ring.angle, targetRingAngle, SMOOTH_FACTOR); handSmoother.ring.size = lerp(handSmoother.ring.size, targetRingWidth, SMOOTH_FACTOR); handSmoother.bangle.x = lerp(handSmoother.bangle.x, wrist.x, SMOOTH_FACTOR); handSmoother.bangle.y = lerp(handSmoother.bangle.y, wrist.y, SMOOTH_FACTOR); handSmoother.bangle.angle = lerp(handSmoother.bangle.angle, targetArmAngle, SMOOTH_FACTOR); handSmoother.bangle.size = lerp(handSmoother.bangle.size, targetBangleWidth, SMOOTH_FACTOR); }
+      
+      canvasCtx.shadowColor = "rgba(0,0,0,0.4)"; canvasCtx.shadowBlur = 10; canvasCtx.shadowOffsetY = 5;
+      
+      // DRAW RING
+      if (ringImg && ringImg.complete) { 
+          const rHeight = (ringImg.height / ringImg.width) * handSmoother.ring.size; 
+          canvasCtx.save(); canvasCtx.translate(handSmoother.ring.x, handSmoother.ring.y); canvasCtx.rotate(handSmoother.ring.angle); 
+          canvasCtx.drawImage(ringImg, -handSmoother.ring.size/2, (handSmoother.ring.size/0.6)*0.15, handSmoother.ring.size, rHeight); canvasCtx.restore(); 
+      }
+      
+      // DRAW BANGLE
+      if (bangleImg && bangleImg.complete) { 
+          const bHeight = (bangleImg.height / bangleImg.width) * handSmoother.bangle.size; 
+          canvasCtx.save(); canvasCtx.translate(handSmoother.bangle.x, handSmoother.bangle.y); canvasCtx.rotate(handSmoother.bangle.angle); 
+          canvasCtx.drawImage(bangleImg, -handSmoother.bangle.size/2, -bHeight/2, handSmoother.bangle.size, bHeight); canvasCtx.restore(); 
+      }
+      canvasCtx.shadowColor = "transparent";
+  }
+  canvasCtx.restore();
+});
+
+/* --- 9. HELPERS --- */
 function initBackgroundFetch() { Object.keys(DRIVE_FOLDERS).forEach(key => { fetchCategoryData(key); }); }
 function fetchCategoryData(category) {
     if (CATALOG_PROMISES[category]) return CATALOG_PROMISES[category];
@@ -133,73 +241,6 @@ function fetchCategoryData(category) {
 function loadAsset(src, id) { return new Promise((resolve) => { if (!src) { resolve(null); return; } if (IMAGE_CACHE[id]) { resolve(IMAGE_CACHE[id]); return; } const img = new Image(); img.crossOrigin = 'anonymous'; img.onload = () => { IMAGE_CACHE[id] = img; resolve(img); }; img.onerror = () => { resolve(null); }; img.src = src; }); }
 function setActiveARImage(img) { if (currentType === 'earrings') earringImg = img; else if (currentType === 'chains') necklaceImg = img; else if (currentType === 'rings') ringImg = img; else if (currentType === 'bangles') bangleImg = img; }
 
-/* --- 8. MEDIAPIPE FACE --- */
-function updatePhysics(headTilt, headX, width) { const gravityTarget = -headTilt; physics.earringVelocity += (gravityTarget - physics.earringAngle) * 0.1; physics.earringVelocity *= 0.92; physics.earringAngle += physics.earringVelocity; const headSpeed = (headX - physics.lastHeadX); physics.lastHeadX = headX; physics.swayOffset += headSpeed * -1.5; physics.swayOffset *= 0.85; if (physics.swayOffset > 0.5) physics.swayOffset = 0.5; if (physics.swayOffset < -0.5) physics.swayOffset = -0.5; }
-const faceMesh = new FaceMesh({ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}` });
-faceMesh.setOptions({ refineLandmarks: true, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
-faceMesh.onResults((results) => {
-  if (currentType !== 'earrings' && currentType !== 'chains') return;
-  const w = videoElement.videoWidth; const h = videoElement.videoHeight;
-  canvasElement.width = w; canvasElement.height = h;
-  canvasCtx.save(); canvasCtx.clearRect(0, 0, w, h);
-  
-  if (currentCameraMode === 'environment') { canvasCtx.translate(0, 0); canvasCtx.scale(1, 1); } 
-  else { canvasCtx.translate(w, 0); canvasCtx.scale(-1, 1); }
-
-  if (results.multiFaceLandmarks && results.multiFaceLandmarks[0]) {
-    const lm = results.multiFaceLandmarks[0]; 
-    const leftEar = { x: lm[132].x * w, y: lm[132].y * h }; const rightEar = { x: lm[361].x * w, y: lm[361].y * h };
-    const neck = { x: lm[152].x * w, y: lm[152].y * h }; const nose = { x: lm[1].x * w, y: lm[1].y * h };
-    const headTilt = Math.atan2(rightEar.y - leftEar.y, rightEar.x - leftEar.x);
-    updatePhysics(headTilt, lm[1].x, w);
-    const earDist = Math.hypot(rightEar.x - leftEar.x, rightEar.y - leftEar.y);
-    const distToLeft = Math.hypot(nose.x - leftEar.x, nose.y - leftEar.y);
-    const distToRight = Math.hypot(nose.x - rightEar.x, nose.y - rightEar.y);
-    const ratio = distToLeft / (distToLeft + distToRight);
-    const showLeft = ratio > 0.25; const showRight = ratio < 0.75; 
-    if (earringImg && earringImg.complete) {
-      let ew = earDist * 0.25; let eh = (earringImg.height/earringImg.width) * ew;
-      const xShift = ew * 0.05; const totalAngle = physics.earringAngle + (physics.swayOffset * 0.5);
-      canvasCtx.shadowColor = "rgba(0,0,0,0.5)"; canvasCtx.shadowBlur = 15; canvasCtx.shadowOffsetX = 2; canvasCtx.shadowOffsetY = 5;
-      if (showLeft) { canvasCtx.save(); canvasCtx.translate(leftEar.x, leftEar.y); canvasCtx.rotate(totalAngle); canvasCtx.drawImage(earringImg, (-ew/2) - xShift, -eh * 0.20, ew, eh); canvasCtx.restore(); }
-      if (showRight) { canvasCtx.save(); canvasCtx.translate(rightEar.x, rightEar.y); canvasCtx.rotate(totalAngle); canvasCtx.drawImage(earringImg, (-ew/2) + xShift, -eh * 0.20, ew, eh); canvasCtx.restore(); }
-      canvasCtx.shadowColor = "transparent";
-    }
-    if (necklaceImg && necklaceImg.complete) { const nw = earDist * 0.85; const nh = (necklaceImg.height/necklaceImg.width) * nw; canvasCtx.drawImage(necklaceImg, neck.x - nw/2, neck.y + (nw*0.1), nw, nh); }
-  }
-  canvasCtx.restore();
-});
-
-/* --- 9. MEDIAPIPE HANDS --- */
-const hands = new Hands({ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}` });
-hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
-function calculateAngle(p1, p2) { return Math.atan2(p2.y - p1.y, p2.x - p1.x); }
-hands.onResults((results) => {
-  const w = videoElement.videoWidth; const h = videoElement.videoHeight;
-  if (currentType !== 'rings' && currentType !== 'bangles') return;
-  canvasElement.width = w; canvasElement.height = h;
-  canvasCtx.save(); canvasCtx.clearRect(0, 0, w, h);
-  if (currentCameraMode === 'environment') { canvasCtx.translate(0, 0); canvasCtx.scale(1, 1); } 
-  else { canvasCtx.translate(w, 0); canvasCtx.scale(-1, 1); }
-  if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
-      const lm = results.multiHandLandmarks[0];
-      const mcp = { x: lm[13].x * w, y: lm[13].y * h }; const pip = { x: lm[14].x * w, y: lm[14].y * h };
-      const targetRingAngle = calculateAngle(mcp, pip) - (Math.PI / 2);
-      const targetRingWidth = Math.hypot(pip.x - mcp.x, pip.y - mcp.y) * 0.6; 
-      const wrist = { x: lm[0].x * w, y: lm[0].y * h }; 
-      const targetArmAngle = calculateAngle(wrist, { x: lm[9].x * w, y: lm[9].y * h }) - (Math.PI / 2);
-      const targetBangleWidth = Math.hypot((lm[17].x*w)-(lm[5].x*w), (lm[17].y*h)-(lm[5].y*h)) * 1.25; 
-      if (!handSmoother.active) { handSmoother.ring = { x: mcp.x, y: mcp.y, angle: targetRingAngle, size: targetRingWidth }; handSmoother.bangle = { x: wrist.x, y: wrist.y, angle: targetArmAngle, size: targetBangleWidth }; handSmoother.active = true; } 
-      else { handSmoother.ring.x = lerp(handSmoother.ring.x, mcp.x, SMOOTH_FACTOR); handSmoother.ring.y = lerp(handSmoother.ring.y, mcp.y, SMOOTH_FACTOR); handSmoother.ring.angle = lerp(handSmoother.ring.angle, targetRingAngle, SMOOTH_FACTOR); handSmoother.ring.size = lerp(handSmoother.ring.size, targetRingWidth, SMOOTH_FACTOR); handSmoother.bangle.x = lerp(handSmoother.bangle.x, wrist.x, SMOOTH_FACTOR); handSmoother.bangle.y = lerp(handSmoother.bangle.y, wrist.y, SMOOTH_FACTOR); handSmoother.bangle.angle = lerp(handSmoother.bangle.angle, targetArmAngle, SMOOTH_FACTOR); handSmoother.bangle.size = lerp(handSmoother.bangle.size, targetBangleWidth, SMOOTH_FACTOR); }
-      canvasCtx.shadowColor = "rgba(0,0,0,0.4)"; canvasCtx.shadowBlur = 10; canvasCtx.shadowOffsetY = 5;
-      if (ringImg && ringImg.complete) { const rHeight = (ringImg.height / ringImg.width) * handSmoother.ring.size; canvasCtx.save(); canvasCtx.translate(handSmoother.ring.x, handSmoother.ring.y); canvasCtx.rotate(handSmoother.ring.angle); canvasCtx.drawImage(ringImg, -handSmoother.ring.size/2, (handSmoother.ring.size/0.6)*0.15, handSmoother.ring.size, rHeight); canvasCtx.restore(); }
-      if (bangleImg && bangleImg.complete) { const bHeight = (bangleImg.height / bangleImg.width) * handSmoother.bangle.size; canvasCtx.save(); canvasCtx.translate(handSmoother.bangle.x, handSmoother.bangle.y); canvasCtx.rotate(handSmoother.bangle.angle); canvasCtx.drawImage(bangleImg, -handSmoother.bangle.size/2, -bHeight/2, handSmoother.bangle.size, bHeight); canvasCtx.restore(); }
-      canvasCtx.shadowColor = "transparent";
-  }
-  canvasCtx.restore();
-});
-
-/* --- 10. EXPORTS & HELPERS --- */
 window.takeSnapshot = takeSnapshot; window.downloadSingleSnapshot = downloadSingleSnapshot; window.shareSingleSnapshot = shareSingleSnapshot; window.toggleTryAll = toggleTryAll; window.changeLightboxImage = changeLightboxImage; window.closePreview = closePreview; window.closeGallery = closeGallery; window.closeLightbox = closeLightbox; window.tryDailyItem = tryDailyItem; window.closeDailyDrop = closeDailyDrop; window.downloadAllAsZip = downloadAllAsZip;
 
 function triggerFlash() { if(!flashOverlay) return; flashOverlay.classList.remove('flash-active'); void flashOverlay.offsetWidth; flashOverlay.classList.add('flash-active'); setTimeout(() => { flashOverlay.classList.remove('flash-active'); }, 300); }
